@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cove Cricket Fantasy</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="index.html"><b class="logo">C</b> Cove Cricket Fantasy</a>
+  <nav>
+    <a class="active" href="#home">Home</a>
+    <a href="#my-team">My Team</a>
+    <a href="#leaderboard">Leaderboard</a>
+    <a href="#players">Players</a>
+  </nav>
+  <button id="loginBtn" class="btn light">Sign in</button>
+</header>
+
+<main id="home">
+<section class="hero">
+  <div>
+    <p class="eyebrow">COVE CRICKET CLUB</p>
+    <h1>Pick your players.<br><span>Back your team.</span></h1>
+    <p>Each week, select two players from every team that is playing, then choose one captain from each team. Earn batting, bowling, fielding and captain-winning points.</p>
+    <a class="btn primary" href="#my-team">Pick my team</a>
+    <a class="btn outline" href="#leaderboard">Leaderboard</a>
+  </div>
+  <aside class="week-card">
+    <small>CURRENT WEEK</small>
+    <strong>Week 1</strong>
+    <p>Selections are open</p>
+    <b class="open"><i></i> Open</b>
+  </aside>
+</section>
+
+<section class="section" id="my-team">
+  <div class="heading"><div><p class="eyebrow">THIS WEEK</p><h2>Pick your fantasy team</h2></div><span id="count" class="pill">0 / 10 players</span></div>
+  <div id="teams" class="teams"></div>
+  <div class="savebar">
+    <div><b id="selectedCount">0 players selected</b><small id="captainCount">0 / 5 captains</small></div>
+    <button id="saveBtn" class="btn primary">Save team</button>
+  </div>
+</section>
+
+<section class="section pale" id="leaderboard">
+  <div class="heading"><div><p class="eyebrow">COVE CRICKET FANTASY</p><h2>Leaderboard</h2></div><span class="pill">Week 1</span></div>
+  <div class="leader">
+    <div class="leader-row header"><span>Pos</span><span>Manager</span><span>Week</span><span>Total</span></div>
+    <div class="leader-row"><span class="rank gold">1</span><b>You</b><span>—</span><b>0</b></div>
+    <div class="leader-row"><span class="rank">2</span><b>Example Manager</b><span>—</span><b>0</b></div>
+    <div class="leader-row"><span class="rank">3</span><b>Example Manager 2</b><span>—</span><b>0</b></div>
+  </div>
+  <p class="note">The live leaderboard will be connected to Supabase in the next stage.</p>
+</section>
+
+<section class="section" id="players">
+  <p class="eyebrow">PLAYER HISTORY</p>
+  <h2>Player profiles</h2>
+  <div class="profile"><span>🏏</span><div><h3>Player profiles are coming next</h3><p>Each player's profile will keep their points from every week, separated into batting, bowling, fielding and captain-winning points.</p></div></div>
+</section>
+</main>
+
+<footer><b>Cove Cricket Fantasy</b><span>Fantasy cricket for Cove Cricket Club</span></footer>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="script.js"></script>
+</body>
+</html>
