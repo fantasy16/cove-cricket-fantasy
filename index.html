@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cove Cricket Fantasy</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<header class="topbar">
+<a href="#home" class="brand"><span class="logo">C</span>Cove Cricket Fantasy</a>
+<nav>
+<a href="#home">Home</a>
+<a href="#my-team">My Team</a>
+<a href="#leaderboard">Leaderboard</a>
+<a href="#players">Players</a>
+</nav>
+<button id="loginBtn" class="secondary">Sign in</button>
+</header>
+
+<section class="hero" id="home">
+<div>
+<p class="label">COVE CRICKET CLUB</p>
+<h1>Pick your players.<br><em>Back your captain.</em></h1>
+<p class="hero-text">Each week, select two players from every Cove team playing that week, then choose one of the five team captains as your fantasy captain.</p>
+<a href="#my-team" class="primary">Pick my team</a>
+<a href="#leaderboard" class="outline">Leaderboard</a>
+</div>
+<div class="week-card">
+<small>CURRENT WEEK</small>
+<strong id="weekNumber">Week 1</strong>
+<p id="weekStatus">Selections are open</p>
+<span class="open" id="weekOpen">● Open</span>
+</div>
+</section>
+
+<section class="section" id="my-team">
+<div class="title-row">
+<div>
+<p class="label">THIS WEEK</p>
+<h2>Pick your fantasy team</h2>
+<p class="muted">Select 2 players from every team that is playing.</p>
+</div>
+<span id="counter" class="pill">0 / 10 players</span>
+</div>
+
+<div id="loginNotice" class="notice hidden">
+<strong>Sign in to save your team.</strong>
+<span>Your selections can be tested while signed out, but saving requires an account.</span>
+</div>
+
+<div id="teams" class="teams"></div>
+
+<div class="captain-area">
+<div class="title-row">
+<div>
+<p class="label">FANTASY CAPTAIN</p>
+<h2>Choose your captain</h2>
+<p class="muted">Choose ONE of the five real Cove team captains. The captain is separate from your 10 player selections.</p>
+</div>
+<span id="captainStatus" class="pill">No captain</span>
+</div>
+<div id="captains" class="captains"></div>
+</div>
+
+<div class="savebar">
+<div>
+<b id="selectedText">0 players selected</b>
+<small id="captainText">Captain: not chosen</small>
+</div>
+<button id="saveBtn" class="primary">Save team</button>
+</div>
+</section>
+
+<section class="section grey" id="leaderboard">
+<div class="title-row">
+<div><p class="label">COVE CRICKET FANTASY</p><h2>Leaderboard</h2></div>
+<span class="pill" id="leaderboardWeek">Week 1</span>
+</div>
+<div class="leaderboard-table" id="leaderboardTable">
+<div class="leader-row header"><span>Pos</span><span>Manager</span><span>Week</span><span>Total</span></div>
+<div class="leader-row"><span>—</span><b>Sign in to see your live position</b><span>—</span><b>—</b></div>
+</div>
+</section>
+
+<section class="section" id="players">
+<p class="label">PLAYER HISTORY</p>
+<h2>Player profiles</h2>
+<div class="profile-placeholder">
+<span>🏏</span>
+<div>
+<h3>Player profiles</h3>
+<p class="muted">Persistent player profiles and weekly point history will be connected to the Editor in the next stage.</p>
+</div>
+</div>
+</section>
+
+<footer>
+<b>Cove Cricket Fantasy</b>
+<span>Fantasy cricket for Cove Cricket Club</span>
+</footer>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<div id="authModal" class="modal hidden" aria-hidden="true">
+<div class="modal-card">
+<button id="closeAuth" class="modal-close" type="button" aria-label="Close">×</button>
+<p class="label">ACCOUNT</p>
+<h2 id="authTitle">Sign in</h2>
+<p id="authSubtitle" class="muted">Sign in to save your fantasy team.</p>
+<label for="authEmail">Email</label>
+<input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com">
+<label for="authPassword">Password</label>
+<input id="authPassword" type="password" autocomplete="current-password" placeholder="At least 6 characters">
+<div class="auth-actions">
+<button id="authPrimary" class="primary" type="button">Sign in</button>
+<button id="authSwitch" class="secondary" type="button">Create account</button>
+</div>
+<p id="authMessage" class="auth-message" aria-live="polite"></p>
+</div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
