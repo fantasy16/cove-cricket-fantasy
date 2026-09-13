@@ -553,12 +553,41 @@ async function renderEditor() {
     const captainOptions = [`<option value="">Choose captain</option>`]
       .concat(profileList.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === team.captainId ? "selected" : ""}>${escapeHtml(p.full_name || "Unnamed player")}</option>`));
     return `<div class="editor-team-card">
-      <label class="check-row"><input type="checkbox" data-editor-team="${escapeHtml(team.id)}" ${team.playing ? "checked" : ""}><strong>${escapeHtml(team.name)}</strong></label>
+      <label class="check-row"><input type="checkbox" data-editor-team="${escapeHtml(team.id)}" ${team.playing ? "checked" : ""}><strong>${escapeHtml(team.name)}</strong><span class="playing-status">${team.playing ? "Playing" : "Not playing"}</span></label>
       <label>Real team captain<select data-editor-captain="${escapeHtml(team.id)}">${captainOptions.join("")}</select></label>
       <div class="roster-grid">${rosterOptions}</div>
       <div class="roster-note">${team.players.length} / 11 players currently saved</div>
     </div>`;
   }).join("");
+
+  // Save a playing-team change immediately as well as through the main Save button.
+  // This prevents the checkbox state being lost when the editor refreshes.
+  document.querySelectorAll("[data-editor-team]").forEach(checkbox => {
+    checkbox.addEventListener("change", async () => {
+      if (!isAdmin || !currentWeek) return;
+      const teamId = checkbox.getAttribute("data-editor-team");
+      const status = checkbox.closest(".check-row")?.querySelector(".playing-status");
+      const wanted = checkbox.checked;
+      if (status) status.textContent = wanted ? "Playing" : "Not playing";
+      checkbox.disabled = true;
+      try {
+        const { error } = await getSupabaseClient()
+          .from("week_teams")
+          .update({ playing: wanted })
+          .eq("week_id", currentWeek.id)
+          .eq("team_id", teamId);
+        if (error) throw error;
+        teams = teams.map(t => t.id === teamId ? {...t, playing: wanted} : t);
+        editorMessage(`✅ ${wanted ? "Team marked as playing." : "Team marked as not playing."}`);
+      } catch (error) {
+        checkbox.checked = !wanted;
+        if (status) status.textContent = checkbox.checked ? "Playing" : "Not playing";
+        editorMessage(error?.message || "Could not save the playing-team setting.", true);
+      } finally {
+        checkbox.disabled = false;
+      }
+    });
+  });
 
   const profileLibrary = document.getElementById("editorProfileLibrary");
   profileLibrary.innerHTML = profileList.length
@@ -740,7 +769,15 @@ async function saveEditorSettings() {
     editorMessage("✅ Week settings and playing teams saved.");
     await loadWeek();
     await loadWeekTeams();
-    await renderEditor();
+    document.querySelectorAll("[data-editor-team]").forEach(checkbox => {
+      const teamId = checkbox.getAttribute("data-editor-team");
+      const team = teams.find(t => t.id === teamId);
+      if (team) {
+        checkbox.checked = !!team.playing;
+        const status = checkbox.closest(".check-row")?.querySelector(".playing-status");
+        if (status) status.textContent = team.playing ? "Playing" : "Not playing";
+      }
+    });
     await Promise.all([loadPublicProfiles(), loadLeaderboard()]);
   } catch (error) {
     console.error(error);
