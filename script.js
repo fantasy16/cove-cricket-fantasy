@@ -22,6 +22,9 @@ let isAdmin = false;
 let publicPlayerCache = [];
 let publicHistoryCache = new Map();
 let publicAssignmentsCache = new Map();
+let savedFantasyTeamId = null;
+let showSavedTeam = false;
+let myTeamPointsCache = new Map();
 
 const teamsEl = document.getElementById("teams");
 const capsEl = document.getElementById("captains");
@@ -163,8 +166,11 @@ async function loadSavedTeam() {
     return;
   }
 
+  savedFantasyTeamId = saved?.id || null;
+  showSavedTeam = !!saved;
   selected.clear();
   fantasyCaptain = saved?.captain_player_id || null;
+  myTeamPointsCache = new Map();
 
   if (saved) {
     const { data: items, error: itemsError } = await getSupabaseClient()
@@ -172,17 +178,52 @@ async function loadSavedTeam() {
       .select("player_id")
       .eq("fantasy_team_id", saved.id);
 
-    if (!itemsError) {
-      for (const item of items || []) selected.set(item.player_id, item.player_id);
+    if (itemsError) {
+      notify("Could not load your saved players: " + itemsError.message);
+      return;
+    }
+
+    for (const item of items || []) selected.set(item.player_id, item.player_id);
+
+    const playerIds = [...selected.keys()];
+    if (playerIds.length) {
+      const { data: pointRows, error: pointsError } = await getSupabaseClient()
+        .from("player_week_points")
+        .select("player_id, batting, bowling, fielding, winning")
+        .eq("week_id", currentWeek.id)
+        .in("player_id", playerIds);
+
+      if (pointsError) {
+        notify("Could not load your team points: " + pointsError.message);
+      } else {
+        for (const row of pointRows || []) myTeamPointsCache.set(row.player_id, row);
+      }
     }
   }
 
   render();
 }
-
 function render() {
   teamsEl.innerHTML = "";
   capsEl.innerHTML = "";
+
+  if (currentUser && showSavedTeam && savedFantasyTeamId) {
+    renderSavedMyTeam();
+    document.getElementById("loginNotice").classList.add("hidden");
+    document.getElementById("loginBtn").textContent = "Account";
+    renderEditor();
+    return;
+  }
+
+  const savebar = document.querySelector(".savebar");
+  if (savebar) {
+    savebar.innerHTML = `<div>
+      <b id="selectedText">0 players selected</b>
+      <small id="captainText">Captain: not chosen</small>
+    </div>
+    <button id="saveBtn" class="primary" type="button">Save team</button>`;
+    document.getElementById("saveBtn").addEventListener("click", saveTeam);
+  }
 
   teams.forEach((team) => {
     const card = document.createElement("div");
@@ -268,6 +309,66 @@ function render() {
   document.getElementById("loginBtn").textContent =
     currentUser ? "Account" : "Sign in";
   renderEditor();
+}
+
+function renderSavedMyTeam() {
+  const playingTeams = teams.filter(team => team.playing);
+  const expected = playingTeams.length * 2;
+  let grandTotal = 0;
+
+  const groups = playingTeams.map(team => ({
+    team,
+    players: team.players.filter(player => selected.has(player.id))
+  })).filter(group => group.players.length);
+
+  teamsEl.innerHTML = groups.length
+    ? groups.map(({team, players}) => {
+        const rows = players.map(player => {
+          const points = myTeamPointsCache.get(player.id) || {};
+          const batting = Number(points.batting || 0);
+          const bowling = Number(points.bowling || 0);
+          const fielding = Number(points.fielding || 0);
+          const winning = player.id === fantasyCaptain ? Number(points.winning || 0) : 0;
+          const total = batting + bowling + fielding + winning;
+          grandTotal += total;
+
+          return `<div class="player">
+            <div class="player-info">
+              <div class="player-name">${escapeHtml(player.name)}</div>
+              <div class="role">${player.id === fantasyCaptain ? "⭐ Fantasy Captain" : escapeHtml(team.name)}</div>
+            </div>
+            <div style="text-align:right;min-width:150px">
+              <strong>${total} pts</strong>
+              <div style="font-size:11px;color:#687789;margin-top:3px">Bat ${batting} · Bowl ${bowling} · Field ${fielding}${winning ? ` · Win ${winning}` : ""}</div>
+            </div>
+          </div>`;
+        }).join("");
+
+        return `<div class="team">
+          <div class="team-head"><span>${escapeHtml(team.name)}</span><small>${players.length} / 2 selected</small></div>
+          ${rows}
+        </div>`;
+      }).join("")
+    : `<div class="notice"><strong>No saved team for this week.</strong><span>Pick your players below.</span></div>`;
+
+  const captainName = fantasyCaptain ? findCaptainName(fantasyCaptain) : "Not chosen";
+  document.getElementById("selectedText").textContent = `${grandTotal} points this week`;
+  document.getElementById("captainText").textContent = `Fantasy Captain: ${captainName}`;
+  document.getElementById("captainStatus").textContent = captainName;
+  document.getElementById("counter").textContent = `${selected.size} / ${expected} players`;
+
+  const savebar = document.querySelector(".savebar");
+  if (savebar) {
+    savebar.innerHTML = `<div>
+      <b>${grandTotal} points this week</b>
+      <small>Fantasy Captain: ${escapeHtml(captainName)}</small>
+    </div>
+    <button id="changeTeamBtn" class="secondary" type="button">Change team</button>`;
+    document.getElementById("changeTeamBtn").addEventListener("click", () => {
+      showSavedTeam = false;
+      render();
+    });
+  }
 }
 
 function findCaptainName(id) {
@@ -411,7 +512,17 @@ async function saveTeam() {
     return;
   }
 
+  savedFantasyTeamId = fantasyTeamId;
+  showSavedTeam = true;
+  myTeamPointsCache = new Map();
+  const { data: pointRows } = await getSupabaseClient()
+    .from("player_week_points")
+    .select("player_id, batting, bowling, fielding, winning")
+    .eq("week_id", currentWeek.id)
+    .in("player_id", [...selected.keys()]);
+  for (const row of pointRows || []) myTeamPointsCache.set(row.player_id, row);
   notify("✅ Team saved to Supabase.");
+  render();
 }
 
 function openAuth(mode) {
@@ -831,6 +942,20 @@ async function savePlayerPoints() {
       }
     }
     editorMessage("✅ Player points saved.");
+    if (currentUser && savedFantasyTeamId && showSavedTeam) {
+      myTeamPointsCache = new Map();
+      const selectedIds = [...selected.keys()];
+      if (selectedIds.length) {
+        const { data: myPoints, error: myPointsError } = await client
+          .from("player_week_points")
+          .select("player_id, batting, bowling, fielding, winning")
+          .eq("week_id", currentWeek.id)
+          .in("player_id", selectedIds);
+        if (myPointsError) throw myPointsError;
+        for (const row of myPoints || []) myTeamPointsCache.set(row.player_id, row);
+      }
+      render();
+    }
     await loadPublicProfiles();
     await loadLeaderboard();
   } catch (error) {
@@ -1030,6 +1155,9 @@ document.getElementById("loginBtn").addEventListener("click", () => {
       editorSection.classList.add("hidden");
       selected.clear();
       fantasyCaptain = null;
+      savedFantasyTeamId = null;
+      showSavedTeam = false;
+      myTeamPointsCache = new Map();
       notify("You have been logged out.");
       render();
     }).catch(error => notify(error?.message || "Could not log out."));
