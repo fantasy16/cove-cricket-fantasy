@@ -590,22 +590,19 @@ async function submitAuth(event) {
       return;
     }
 
-    // Use the authenticated user returned by Supabase immediately.
-    // This avoids showing "Signed in" while the page still thinks the user is signed out.
-    if (result.data?.user) {
-      currentUser = result.data.user;
-    } else {
-      const { data: userData, error: userError } = await client.auth.getUser();
-      if (userError) throw userError;
-      currentUser = userData?.user || null;
-    }
+    // Confirm that Supabase actually has an active session before changing the UI.
+    const { data: sessionData, error: sessionError } = await client.auth.getSession();
+    if (sessionError) throw sessionError;
+
+    currentUser = sessionData?.session?.user || result.data?.user || null;
 
     if (!currentUser) {
-      throw new Error("Supabase signed in, but no user session was available. Please refresh and try again.");
+      throw new Error("Login succeeded but no active session was found. Please refresh and try again.");
     }
 
     await loadAdminStatus();
-    if (currentUser) await loadSavedTeam();
+    await loadSavedTeam();
+
     closeAuth();
     render();
     notify(authMode === "login" ? "✅ Signed in." : "✅ Account created and signed in.");
@@ -1144,17 +1141,26 @@ async function loadLeaderboard() {
 
 async function refreshUser() {
   try {
-    const { data, error } = await getSupabaseClient().auth.getUser();
-    if (error) throw error;
-    currentUser = data.user || null;
-    await loadAdminStatus();
+    const client = getSupabaseClient();
+    const { data: sessionData, error: sessionError } = await client.auth.getSession();
+    if (sessionError) throw sessionError;
 
+    currentUser = sessionData?.session?.user || null;
+
+    if (!currentUser) {
+      const { data: userData, error: userError } = await client.auth.getUser();
+      if (userError) throw userError;
+      currentUser = userData?.user || null;
+    }
+
+    await loadAdminStatus();
     if (currentUser) await loadSavedTeam();
     render();
   } catch (error) {
-    currentUser = null;
+    console.error("Could not refresh signed-in state:", error);
+    // Keep the current user state rather than falsely switching to signed out
+    // because a profile/team query failed.
     render();
-    console.error(error);
   }
 }
 
@@ -1207,9 +1213,14 @@ authModal.addEventListener("click", (event) => {
   if (event.target === authModal) closeAuth();
 });
 
+let authRefreshTimer = null;
+
 try {
-  getSupabaseClient().auth.onAuthStateChange(() => {
-    setTimeout(() => { refreshUser().catch(error => console.error(error)); }, 0);
+  getSupabaseClient().auth.onAuthStateChange((event) => {
+    clearTimeout(authRefreshTimer);
+    authRefreshTimer = setTimeout(() => {
+      refreshUser().catch(error => console.error(error));
+    }, event === "SIGNED_IN" ? 50 : 150);
   });
 } catch (error) {
   console.error(error);
