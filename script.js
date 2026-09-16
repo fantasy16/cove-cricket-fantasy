@@ -167,7 +167,7 @@ async function loadSavedTeam() {
   }
 
   savedFantasyTeamId = saved?.id || null;
-  showSavedTeam = !!saved;
+  showSavedTeam = false;
   selected.clear();
   fantasyCaptain = saved?.captain_player_id || null;
   myTeamPointsCache = new Map();
@@ -221,8 +221,18 @@ function render() {
       <b id="selectedText">0 players selected</b>
       <small id="captainText">Captain: not chosen</small>
     </div>
-    <button id="saveBtn" class="primary" type="button">Save team</button>`;
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      ${savedFantasyTeamId ? '<button id="viewMyTeamBtn" class="secondary" type="button">View my team</button>' : ''}
+      <button id="saveBtn" class="primary" type="button">Save team</button>
+    </div>`;
     document.getElementById("saveBtn").addEventListener("click", saveTeam);
+    const viewBtn = document.getElementById("viewMyTeamBtn");
+    if (viewBtn) {
+      viewBtn.addEventListener("click", () => {
+        showSavedTeam = true;
+        render();
+      });
+    }
   }
 
   teams.forEach((team) => {
@@ -513,7 +523,7 @@ async function saveTeam() {
   }
 
   savedFantasyTeamId = fantasyTeamId;
-  showSavedTeam = true;
+  showSavedTeam = false;
   myTeamPointsCache = new Map();
   const { data: pointRows } = await getSupabaseClient()
     .from("player_week_points")
@@ -955,7 +965,7 @@ async function savePlayerPoints() {
       }
     }
     editorMessage("✅ Player points saved.");
-    if (currentUser && savedFantasyTeamId && showSavedTeam) {
+    if (currentUser && savedFantasyTeamId) {
       myTeamPointsCache = new Map();
       const selectedIds = [...selected.keys()];
       if (selectedIds.length) {
