@@ -207,31 +207,46 @@ function render() {
   teamsEl.innerHTML = "";
   capsEl.innerHTML = "";
 
+  const myTeamSection = document.getElementById("my-team");
+  const myTeamHeading = myTeamSection?.querySelector("h2");
+  const myTeamSub = myTeamSection?.querySelector(".muted");
+  const captainArea = document.querySelector(".captain-area");
+
+  if (showSavedTeam && currentUser && savedFantasyTeamId) {
+    if (myTeamHeading) myTeamHeading.textContent = "My team";
+    if (myTeamSub) myTeamSub.textContent = "Your saved players and this week's points.";
+    if (captainArea) captainArea.classList.add("hidden");
+    renderSavedMyTeam();
+    document.getElementById("loginNotice")?.classList.add("hidden");
+    document.getElementById("loginBtn").textContent = "Account";
+    renderEditor();
+    return;
+  }
+
+  if (myTeamHeading) myTeamHeading.textContent = "Pick your fantasy team";
+  if (myTeamSub) myTeamSub.textContent = "Select 2 players from every team that is playing.";
+  if (captainArea) captainArea.classList.remove("hidden");
+
   const savebar = document.querySelector(".savebar");
   if (savebar) {
-    const saveButton = document.getElementById("saveBtn");
-    let viewButton = document.getElementById("viewMyTeamBtn");
+    savebar.innerHTML = `
+      <div>
+        <b id="selectedText">0 players selected</b>
+        <small id="captainText">Captain: not chosen</small>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        ${currentUser && savedFantasyTeamId ? '<button id="viewMyTeamBtn" class="secondary" type="button">View my team</button>' : ''}
+        <button id="saveBtn" class="primary" type="button">Save team</button>
+      </div>`;
 
-    if (!viewButton && saveButton) {
-      viewButton = document.createElement("button");
-      viewButton.id = "viewMyTeamBtn";
-      viewButton.type = "button";
-      viewButton.className = "secondary";
-      viewButton.textContent = "View my team";
+    document.getElementById("saveBtn").addEventListener("click", saveTeam);
+
+    const viewButton = document.getElementById("viewMyTeamBtn");
+    if (viewButton) {
       viewButton.addEventListener("click", () => {
-        if (!currentUser || !savedFantasyTeamId) {
-          notify("Save your team first.");
-          return;
-        }
         showSavedTeam = true;
         render();
       });
-
-      saveButton.parentNode.insertBefore(viewButton, saveButton);
-    }
-
-    if (viewButton) {
-      viewButton.hidden = !(currentUser && savedFantasyTeamId);
     }
   }
 
@@ -523,7 +538,7 @@ async function saveTeam() {
   }
 
   savedFantasyTeamId = fantasyTeamId;
-  showSavedTeam = true;
+  showSavedTeam = false;
   myTeamPointsCache = new Map();
   const { data: pointRows } = await getSupabaseClient()
     .from("player_week_points")
