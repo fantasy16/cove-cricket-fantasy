@@ -207,47 +207,29 @@ function render() {
   teamsEl.innerHTML = "";
   capsEl.innerHTML = "";
 
-  const myTeamSection = document.getElementById("my-team");
-  const myTeamHeading = myTeamSection?.querySelector("h2");
-  const myTeamSub = myTeamSection?.querySelector(".muted");
-  const captainArea = document.querySelector(".captain-area");
-
-  if (showSavedTeam && currentUser && savedFantasyTeamId) {
-    if (myTeamHeading) myTeamHeading.textContent = "My team";
-    if (myTeamSub) myTeamSub.textContent = "Your saved players and this week's points.";
-    if (captainArea) captainArea.classList.add("hidden");
+  if (currentUser && showSavedTeam && savedFantasyTeamId) {
     renderSavedMyTeam();
-    document.getElementById("loginNotice")?.classList.add("hidden");
+    document.getElementById("loginNotice").classList.add("hidden");
     document.getElementById("loginBtn").textContent = "Account";
     renderEditor();
     return;
   }
 
-  if (myTeamHeading) myTeamHeading.textContent = "Pick your fantasy team";
-  if (myTeamSub) myTeamSub.textContent = "Select 2 players from every team that is playing.";
-  if (captainArea) captainArea.classList.remove("hidden");
-
   const savebar = document.querySelector(".savebar");
   if (savebar) {
-    savebar.innerHTML = `
-      <div>
-        <b id="selectedText">0 players selected</b>
-        <small id="captainText">Captain: not chosen</small>
-      </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-        ${currentUser && savedFantasyTeamId ? '<button id="viewMyTeamBtn" class="secondary" type="button">View my team</button>' : ''}
-        <button id="saveBtn" class="primary" type="button">Save team</button>
-      </div>`;
-
-    document.getElementById("saveBtn").addEventListener("click", saveTeam);
+    savebar.innerHTML = `<div>
+      <b id="selectedText">0 players selected</b>
+      <small id="captainText">Captain: not chosen</small>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      ${currentUser && savedFantasyTeamId ? '<button id="viewMyTeamBtn" class="secondary" type="button">View my team</button>' : ''}
+      <button id="saveBtn" class="primary" type="button">Save team</button>
+    </div>`;
+    const saveButton = document.getElementById("saveBtn");
+    if (saveButton) saveButton.addEventListener("click", saveTeam);
 
     const viewButton = document.getElementById("viewMyTeamBtn");
-    if (viewButton) {
-      viewButton.addEventListener("click", () => {
-        showSavedTeam = true;
-        render();
-      });
-    }
+    if (viewButton) viewButton.addEventListener("click", showMyTeamOverlay);
   }
 
   teams.forEach((team) => {
@@ -319,81 +301,149 @@ function render() {
   const playingTeams = teams.filter(t => t.playing);
   const expected = playingTeams.length * 2;
 
-  document.getElementById("selectedText").textContent =
+  const selectedTextEl = document.getElementById("selectedText");
+  const captainTextEl = document.getElementById("captainText");
+  const captainStatusEl = document.getElementById("captainStatus");
+  const counterEl = document.getElementById("counter");
+  const loginNoticeEl = document.getElementById("loginNotice");
+  const loginBtnEl = document.getElementById("loginBtn");
+
+  if (selectedTextEl) selectedTextEl.textContent =
     `${selected.size} player${selected.size === 1 ? "" : "s"} selected`;
-  document.getElementById("captainText").textContent =
+  if (captainTextEl) captainTextEl.textContent =
     fantasyCaptain
       ? `Captain: ${findCaptainName(fantasyCaptain)}`
       : "Captain: not chosen";
-  document.getElementById("captainStatus").textContent =
+  if (captainStatusEl) captainStatusEl.textContent =
     fantasyCaptain ? findCaptainTeam(fantasyCaptain) : "No captain";
-  document.getElementById("counter").textContent =
+  if (counterEl) counterEl.textContent =
     `${selected.size} / ${expected} players`;
-
-  document.getElementById("loginNotice").classList.toggle("hidden", !!currentUser);
-  document.getElementById("loginBtn").textContent =
-    currentUser ? "Account" : "Sign in";
+  if (loginNoticeEl) loginNoticeEl.classList.toggle("hidden", !!currentUser);
+  if (loginBtnEl) loginBtnEl.textContent = currentUser ? "Account" : "Sign in";
   renderEditor();
 }
 
-function renderSavedMyTeam() {
-  const playingTeams = teams.filter(team => team.playing);
-  const expected = playingTeams.length * 2;
-  let grandTotal = 0;
-
-  const groups = playingTeams.map(team => ({
-    team,
-    players: team.players.filter(player => selected.has(player.id))
-  })).filter(group => group.players.length);
-
-  teamsEl.innerHTML = groups.length
-    ? groups.map(({team, players}) => {
-        const rows = players.map(player => {
-          const points = myTeamPointsCache.get(player.id) || {};
-          const batting = Number(points.batting || 0);
-          const bowling = Number(points.bowling || 0);
-          const fielding = Number(points.fielding || 0);
-          const winning = player.id === fantasyCaptain ? Number(points.winning || 0) : 0;
-          const total = batting + bowling + fielding + winning;
-          grandTotal += total;
-
-          return `<div class="player">
-            <div class="player-info">
-              <div class="player-name">${escapeHtml(player.name)}</div>
-              <div class="role">${player.id === fantasyCaptain ? "⭐ Fantasy Captain" : escapeHtml(team.name)}</div>
-            </div>
-            <div style="text-align:right;min-width:150px">
-              <strong>${total} pts</strong>
-              <div style="font-size:11px;color:#687789;margin-top:3px">Bat ${batting} · Bowl ${bowling} · Field ${fielding}${winning ? ` · Win ${winning}` : ""}</div>
-            </div>
-          </div>`;
-        }).join("");
-
-        return `<div class="team">
-          <div class="team-head"><span>${escapeHtml(team.name)}</span><small>${players.length} / 2 selected</small></div>
-          ${rows}
-        </div>`;
-      }).join("")
-    : `<div class="notice"><strong>No saved team for this week.</strong><span>Pick your players below.</span></div>`;
-
-  const captainName = fantasyCaptain ? findCaptainName(fantasyCaptain) : "Not chosen";
-  document.getElementById("selectedText").textContent = `${grandTotal} points this week`;
-  document.getElementById("captainText").textContent = `Fantasy Captain: ${captainName}`;
-  document.getElementById("captainStatus").textContent = captainName;
-  document.getElementById("counter").textContent = `${selected.size} / ${expected} players`;
-
-  const savebar = document.querySelector(".savebar");
-  if (savebar) {
-    savebar.innerHTML = `<div>
-      <b>${grandTotal} points this week</b>
-      <small>Fantasy Captain: ${escapeHtml(captainName)}</small>
-    </div>
-    <button id="changeTeamBtn" class="secondary" type="button">Change team</button>`;
-    document.getElementById("changeTeamBtn").addEventListener("click", () => {
-      showSavedTeam = false;
-      render();
-    });
+function showMyTeamOverlay() {
+  if (!currentUser || !savedFantasyTeamId || !currentWeek) {
+    notify("Save your team first.");
+    return;
   }
+
+  const old = document.getElementById("myTeamOverlay");
+  if (old) old.remove();
+
+  const overlay = document.createElement("div");
+  overlay.id = "myTeamOverlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.style.cssText = [
+    "position:fixed","inset:0","background:rgba(7,27,47,.55)",
+    "z-index:100","display:grid","place-items:center","padding:20px"
+  ].join(";");
+
+  const card = document.createElement("div");
+  card.style.cssText = [
+    "position:relative","width:min(760px,100%)","max-height:90vh",
+    "overflow:auto","background:#fff","border-radius:14px",
+    "padding:28px","border:1px solid #dce4ee"
+  ].join(";");
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.textContent = "×";
+  close.setAttribute("aria-label", "Close my team");
+  close.style.cssText = "position:absolute;right:12px;top:8px;background:transparent;color:#687789;font-size:28px;padding:6px 10px";
+  close.addEventListener("click", () => overlay.remove());
+
+  const title = document.createElement("h2");
+  title.textContent = "My Team";
+  title.style.margin = "0 0 4px";
+
+  const subtitle = document.createElement("p");
+  subtitle.className = "muted";
+  subtitle.textContent = `Week ${currentWeek.week_number}`;
+
+  const total = document.createElement("div");
+  total.style.cssText = "margin:16px 0;padding:15px;border:1px solid #dce4ee;border-radius:10px;background:#f7f9fc;font-weight:800";
+  total.textContent = "Loading your points…";
+
+  const list = document.createElement("div");
+  list.style.cssText = "display:grid;gap:10px";
+
+  card.append(close, title, subtitle, total, list);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+
+  (async () => {
+    try {
+      const client = getSupabaseClient();
+
+      const { data: saved, error: savedError } = await client
+        .from("fantasy_teams")
+        .select("id, captain_player_id")
+        .eq("id", savedFantasyTeamId)
+        .maybeSingle();
+      if (savedError) throw savedError;
+      if (!saved) throw new Error("Your saved team could not be found.");
+
+      const { data: items, error: itemsError } = await client
+        .from("fantasy_team_players")
+        .select("player_id")
+        .eq("fantasy_team_id", savedFantasyTeamId);
+      if (itemsError) throw itemsError;
+
+      const ids = (items || []).map(x => x.player_id);
+      if (!ids.length) {
+        total.textContent = "0 points this week";
+        list.innerHTML = '<div class="notice"><strong>No players saved.</strong></div>';
+        return;
+      }
+
+      const [{ data: players, error: playerError }, { data: points, error: pointsError }] = await Promise.all([
+        client.from("players").select("id, full_name").in("id", ids),
+        client.from("player_week_points").select("player_id, batting, bowling, fielding, winning").eq("week_id", currentWeek.id).in("player_id", ids)
+      ]);
+      if (playerError) throw playerError;
+      if (pointsError) throw pointsError;
+
+      const playerMap = new Map((players || []).map(p => [p.id, p]));
+      const pointMap = new Map((points || []).map(p => [p.player_id, p]));
+
+      let grandTotal = 0;
+
+      list.innerHTML = ids.map(id => {
+        const name = playerMap.get(id)?.full_name || "Unnamed player";
+        const row = pointMap.get(id) || {};
+        const batting = Number(row.batting || 0);
+        const bowling = Number(row.bowling || 0);
+        const fielding = Number(row.fielding || 0);
+        const winning = id === saved.captain_player_id ? Number(row.winning || 0) : 0;
+        const playerTotal = batting + bowling + fielding + winning;
+        grandTotal += playerTotal;
+
+        return `<div style="display:flex;justify-content:space-between;gap:14px;align-items:center;padding:13px 15px;border:1px solid #dce4ee;border-radius:10px;background:#fff">
+          <div>
+            <strong>${escapeHtml(name)}</strong>
+            ${id === saved.captain_player_id ? '<div style="font-size:11px;color:#1760a9;font-weight:800;margin-top:3px">⭐ Fantasy Captain</div>' : ''}
+          </div>
+          <div style="text-align:right;font-size:12px;color:#687789">
+            Bat ${batting} · Bowl ${bowling} · Field ${fielding}${winning ? ` · Win ${winning}` : ""}
+            <br><strong style="color:#071b2f;font-size:16px">${playerTotal} pts</strong>
+          </div>
+        </div>`;
+      }).join("");
+
+      total.textContent = `${grandTotal} points this week`;
+    } catch (error) {
+      console.error("Could not load my team", error);
+      total.textContent = "Points unavailable";
+      list.innerHTML = `<div class="notice"><strong>Could not load your team.</strong><span>${escapeHtml(error?.message || "Please try again.")}</span></div>`;
+    }
+  })();
 }
 
 function findCaptainName(id) {
@@ -615,10 +665,12 @@ async function submitAuth(event) {
       return;
     }
 
+    // Confirm that Supabase actually has an active session before changing the UI.
     const { data: sessionData, error: sessionError } = await client.auth.getSession();
     if (sessionError) throw sessionError;
 
     currentUser = sessionData?.session?.user || result.data?.user || null;
+
     if (!currentUser) {
       throw new Error("Login succeeded but no active session was found. Please refresh and try again.");
     }
@@ -933,26 +985,78 @@ async function saveEditorSettings() {
 }
 
 async function startNewWeek() {
-  if (!isAdmin) return editorMessage("You need Admin access to start a week.", true);
-  const number = Math.max(1, Math.min(999, Number(document.getElementById("newWeekNumber").value) || ((currentWeek?.week_number || 0) + 1)));
-  const title = document.getElementById("newWeekTitle").value.trim() || `Week ${number}`;
+  if (!isAdmin) {
+    notify("Admin access required.");
+    editorMessage("You need Admin access to start a week.", true);
+    return;
+  }
+
+  const numberInput = document.getElementById("newWeekNumber");
+  const titleInput = document.getElementById("newWeekTitle");
+  const button = document.getElementById("newWeekBtn");
+
+  if (!numberInput || !titleInput) {
+    notify("The new-week fields are missing from the page.");
+    return;
+  }
+
+  const number = Math.max(
+    1,
+    Math.min(
+      999,
+      Number(numberInput.value) || ((currentWeek?.week_number || 0) + 1)
+    )
+  );
+  const title = titleInput.value.trim() || `Week ${number}`;
+
+  if (button) button.disabled = true;
   editorMessage("Creating new week…");
+
   try {
     const client = getSupabaseClient();
-    const { error: oldError } = await client.from("weeks").update({ is_current: false }).eq("is_current", true);
+
+    const { error: oldError } = await client
+      .from("weeks")
+      .update({ is_current: false })
+      .eq("is_current", true);
     if (oldError) throw oldError;
-    const { data, error } = await client.from("weeks").insert({
-      week_number: number, title, is_current: true, selections_open: false
-    }).select("*").single();
+
+    const { data, error } = await client
+      .from("weeks")
+      .insert({
+        week_number: number,
+        title,
+        is_current: true,
+        selections_open: false
+      })
+      .select("*")
+      .single();
     if (error) throw error;
+
     await ensureWeekTeams(data.id);
-    editorMessage(`✅ ${title} created. Select which teams are playing, then choose their 11 player profiles.`);
+
+    currentWeek = data;
+    savedFantasyTeamId = null;
+    selected.clear();
+    fantasyCaptain = null;
+    showSavedTeam = false;
+    myTeamPointsCache = new Map();
+
     await loadWeek();
     await loadWeekTeams();
-    renderEditor();
+    await renderEditor();
+
+    numberInput.value = "";
+    titleInput.value = "";
+
+    editorMessage(`✅ ${title} created. Tick the teams that are playing, then assign their 11 players.`);
+    notify(`✅ ${title} created.`);
   } catch (error) {
-    console.error(error);
+    console.error("Could not create new week", error);
     editorMessage(error?.message || "Could not create the new week.", true);
+    notify(error?.message || "Could not create the new week.");
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
@@ -1181,11 +1285,14 @@ async function refreshUser() {
     render();
   } catch (error) {
     console.error("Could not refresh signed-in state:", error);
+    // Keep the current user state rather than falsely switching to signed out
+    // because a profile/team query failed.
     render();
   }
 }
 
-document.getElementById("saveBtn").addEventListener("click", saveTeam);
+const initialSaveBtn = document.getElementById("saveBtn");
+if (initialSaveBtn) initialSaveBtn.addEventListener("click", saveTeam);
 
 document.getElementById("loginBtn").addEventListener("click", () => {
   if (currentUser) {
@@ -1221,7 +1328,8 @@ editorNav.addEventListener("click", () => {
   renderEditor();
 });
 document.getElementById("saveEditor").addEventListener("click", saveEditorSettings);
-document.getElementById("newWeekBtn").addEventListener("click", startNewWeek);
+const newWeekBtn = document.getElementById("newWeekBtn");
+if (newWeekBtn) newWeekBtn.addEventListener("click", () => { startNewWeek().catch(error => { console.error(error); notify(error?.message || "Could not create the new week."); }); });
 document.getElementById("addPlayerProfilesBtn").addEventListener("click", addPlayerProfilesBulk);
 document.getElementById("saveAssignmentsBtn").addEventListener("click", savePlayerAssignments);
 document.getElementById("savePointsBtn").addEventListener("click", savePlayerPoints);
@@ -1234,9 +1342,14 @@ authModal.addEventListener("click", (event) => {
   if (event.target === authModal) closeAuth();
 });
 
+let authRefreshTimer = null;
+
 try {
-  getSupabaseClient().auth.onAuthStateChange(() => {
-    setTimeout(() => { refreshUser().catch(error => console.error(error)); }, 0);
+  getSupabaseClient().auth.onAuthStateChange((event) => {
+    clearTimeout(authRefreshTimer);
+    authRefreshTimer = setTimeout(() => {
+      refreshUser().catch(error => console.error(error));
+    }, event === "SIGNED_IN" ? 50 : 150);
   });
 } catch (error) {
   console.error(error);
