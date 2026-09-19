@@ -207,31 +207,31 @@ function render() {
   teamsEl.innerHTML = "";
   capsEl.innerHTML = "";
 
-  if (currentUser && showSavedTeam && savedFantasyTeamId) {
-    renderSavedMyTeam();
-    document.getElementById("loginNotice").classList.add("hidden");
-    document.getElementById("loginBtn").textContent = "Account";
-    renderEditor();
-    return;
-  }
-
   const savebar = document.querySelector(".savebar");
   if (savebar) {
-    savebar.innerHTML = `<div>
-      <b id="selectedText">0 players selected</b>
-      <small id="captainText">Captain: not chosen</small>
-    </div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
-      ${savedFantasyTeamId ? '<button id="viewMyTeamBtn" class="secondary" type="button">View my team</button>' : ''}
-      <button id="saveBtn" class="primary" type="button">Save team</button>
-    </div>`;
-    document.getElementById("saveBtn").addEventListener("click", saveTeam);
-    const viewBtn = document.getElementById("viewMyTeamBtn");
-    if (viewBtn) {
-      viewBtn.addEventListener("click", () => {
+    const saveButton = document.getElementById("saveBtn");
+    let viewButton = document.getElementById("viewMyTeamBtn");
+
+    if (!viewButton && saveButton) {
+      viewButton = document.createElement("button");
+      viewButton.id = "viewMyTeamBtn";
+      viewButton.type = "button";
+      viewButton.className = "secondary";
+      viewButton.textContent = "View my team";
+      viewButton.addEventListener("click", () => {
+        if (!currentUser || !savedFantasyTeamId) {
+          notify("Save your team first.");
+          return;
+        }
         showSavedTeam = true;
         render();
       });
+
+      saveButton.parentNode.insertBefore(viewButton, saveButton);
+    }
+
+    if (viewButton) {
+      viewButton.hidden = !(currentUser && savedFantasyTeamId);
     }
   }
 
@@ -523,7 +523,7 @@ async function saveTeam() {
   }
 
   savedFantasyTeamId = fantasyTeamId;
-  showSavedTeam = false;
+  showSavedTeam = true;
   myTeamPointsCache = new Map();
   const { data: pointRows } = await getSupabaseClient()
     .from("player_week_points")
@@ -600,12 +600,10 @@ async function submitAuth(event) {
       return;
     }
 
-    // Confirm that Supabase actually has an active session before changing the UI.
     const { data: sessionData, error: sessionError } = await client.auth.getSession();
     if (sessionError) throw sessionError;
 
     currentUser = sessionData?.session?.user || result.data?.user || null;
-
     if (!currentUser) {
       throw new Error("Login succeeded but no active session was found. Please refresh and try again.");
     }
@@ -965,7 +963,7 @@ async function savePlayerPoints() {
       }
     }
     editorMessage("✅ Player points saved.");
-    if (currentUser && savedFantasyTeamId) {
+    if (currentUser && savedFantasyTeamId && showSavedTeam) {
       myTeamPointsCache = new Map();
       const selectedIds = [...selected.keys()];
       if (selectedIds.length) {
@@ -1168,8 +1166,6 @@ async function refreshUser() {
     render();
   } catch (error) {
     console.error("Could not refresh signed-in state:", error);
-    // Keep the current user state rather than falsely switching to signed out
-    // because a profile/team query failed.
     render();
   }
 }
@@ -1223,14 +1219,9 @@ authModal.addEventListener("click", (event) => {
   if (event.target === authModal) closeAuth();
 });
 
-let authRefreshTimer = null;
-
 try {
-  getSupabaseClient().auth.onAuthStateChange((event) => {
-    clearTimeout(authRefreshTimer);
-    authRefreshTimer = setTimeout(() => {
-      refreshUser().catch(error => console.error(error));
-    }, event === "SIGNED_IN" ? 50 : 150);
+  getSupabaseClient().auth.onAuthStateChange(() => {
+    setTimeout(() => { refreshUser().catch(error => console.error(error)); }, 0);
   });
 } catch (error) {
   console.error(error);
