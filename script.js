@@ -1157,15 +1157,17 @@ async function loadPublicProfiles() {
       return;
     }
 
+    // Compact name-only directory. Detailed stats appear only when a name is clicked.
     container.innerHTML = (players || []).map(player => {
-      const rows = (history.get(player.id) || []).sort((a,b) => (b.week?.week_number || 0) - (a.week?.week_number || 0));
-      const career = rows.reduce((sum, r) => sum + r.total, 0);
-      const current = rows.find(r => r.week_id === currentWeek?.id);
-      const team = assignments.get(player.id) || "Not selected this week";
-      return `<button type="button" class="public-profile-card" data-public-player="${escapeHtml(player.id)}">
-        <div class="profile-main"><div class="profile-avatar">🏏</div><div><h3>${escapeHtml(player.full_name || "Unnamed player")}</h3><p class="muted">${escapeHtml(team)}</p></div></div>
-        <div class="profile-summary"><span>${current?.total ?? 0} pts this week</span><span>${career} career pts</span><span>${rows.length} week${rows.length === 1 ? "" : "s"} scored</span></div>
-        <span class="profile-view">View stats →</span>
+      const name = player.full_name || "Unnamed player";
+      return `<button type="button"
+        class="public-profile-card player-name-only"
+        data-public-player="${escapeHtml(player.id)}"
+        aria-label="Open ${escapeHtml(name)}'s player profile"
+        title="Click to view player stats"
+        style="display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:44px;padding:10px 14px;text-align:left;border:1px solid #dce4ee;border-radius:8px;background:#fff;">
+        <span style="font-size:15px;font-weight:800;color:#102235;">${escapeHtml(name)}</span>
+        <span aria-hidden="true" style="font-size:20px;color:#687789;">›</span>
       </button>`;
     }).join("");
 
@@ -1191,6 +1193,10 @@ function showPlayerProfile(playerId) {
   const current = rows.find(r => r.week_id === currentWeek?.id);
   const modal = document.getElementById("playerProfileModal");
   const body = document.getElementById("playerProfileBody");
+  if (!modal || !body) {
+    notify("Player profile details are missing from the page. Please check index.html.");
+    return;
+  }
   body.innerHTML = `
     <div class="profile-detail-head"><div class="profile-avatar large">🏏</div><div><h3>${escapeHtml(player.full_name || "Unnamed player")}</h3><p class="muted">${escapeHtml(team)}</p></div></div>
     <div class="profile-detail-grid">
