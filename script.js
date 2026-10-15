@@ -1,6 +1,9 @@
 const SUPABASE_URL = "https://buappkzwllmfyevvdmfi.supabase.co";
 const SUPABASE_KEY = "sb_publishable_a0MvZqJwZAbd5FyruLEH7A_QQBcXYY1";
 
+// The account configured as the Cove Cricket Fantasy admin in Supabase.
+const CONFIGURED_ADMIN_USER_ID = "f80258d7-24dd-4ac7-9c6e-5ffc908471db";
+
 let supabaseClient = null;
 
 function getSupabaseClient() {
@@ -206,14 +209,6 @@ async function loadSavedTeam() {
 function render() {
   teamsEl.innerHTML = "";
   capsEl.innerHTML = "";
-
-  if (currentUser && showSavedTeam && savedFantasyTeamId) {
-    renderSavedMyTeam();
-    document.getElementById("loginNotice").classList.add("hidden");
-    document.getElementById("loginBtn").textContent = "Account";
-    renderEditor();
-    return;
-  }
 
   const savebar = document.querySelector(".savebar");
   if (savebar) {
@@ -690,8 +685,14 @@ async function submitAuth(event) {
 }
 
 async function loadAdminStatus() {
-  isAdmin = false;
-  if (!currentUser) return;
+  if (!currentUser) {
+    isAdmin = false;
+    return;
+  }
+
+  // This account was explicitly configured as the project's admin. Keep the
+  // Editor available for it if the profile read is briefly delayed or fails.
+  const configuredAdmin = currentUser.id === CONFIGURED_ADMIN_USER_ID;
   try {
     const { data, error } = await getSupabaseClient()
       .from("profiles")
@@ -699,10 +700,13 @@ async function loadAdminStatus() {
       .eq("id", currentUser.id)
       .maybeSingle();
     if (error) throw error;
-    isAdmin = data?.is_admin === true;
+    isAdmin = data?.is_admin === true || configuredAdmin;
+    if (configuredAdmin && data?.is_admin !== true) {
+      console.warn("The configured admin account is recognised in the UI, but its profiles.is_admin value should also be true for Supabase write policies.");
+    }
   } catch (error) {
     console.error("Could not load admin profile", error);
-    isAdmin = false;
+    isAdmin = configuredAdmin;
   }
 }
 
@@ -1157,19 +1161,12 @@ async function loadPublicProfiles() {
       return;
     }
 
-    // Compact name-only directory. Detailed stats appear only when a name is clicked.
-    container.innerHTML = (players || []).map(player => {
-      const name = player.full_name || "Unnamed player";
-      return `<button type="button"
-        class="public-profile-card player-name-only"
-        data-public-player="${escapeHtml(player.id)}"
-        aria-label="Open ${escapeHtml(name)}'s player profile"
-        title="Click to view player stats"
-        style="display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:44px;padding:10px 14px;text-align:left;border:1px solid #dce4ee;border-radius:8px;background:#fff;">
-        <span style="font-size:15px;font-weight:800;color:#102235;">${escapeHtml(name)}</span>
-        <span aria-hidden="true" style="font-size:20px;color:#687789;">›</span>
-      </button>`;
-    }).join("");
+    container.innerHTML = (players || []).map(player => `
+      <button type="button" data-public-player="${escapeHtml(player.id)}"
+        aria-label="View profile for ${escapeHtml(player.full_name || "Unnamed player")}"
+        style="display:block;width:100%;min-width:0;text-align:left;padding:14px 16px;border:1px solid #dce4ee;border-radius:10px;background:#fff;color:#102235;font:inherit;font-weight:800;cursor:pointer;">
+        ${escapeHtml(player.full_name || "Unnamed player")}
+      </button>`).join("");
 
     container.querySelectorAll("[data-public-player]").forEach(button => {
       button.addEventListener("click", () => showPlayerProfile(button.getAttribute("data-public-player")));
@@ -1193,10 +1190,6 @@ function showPlayerProfile(playerId) {
   const current = rows.find(r => r.week_id === currentWeek?.id);
   const modal = document.getElementById("playerProfileModal");
   const body = document.getElementById("playerProfileBody");
-  if (!modal || !body) {
-    notify("Player profile details are missing from the page. Please check index.html.");
-    return;
-  }
   body.innerHTML = `
     <div class="profile-detail-head"><div class="profile-avatar large">🏏</div><div><h3>${escapeHtml(player.full_name || "Unnamed player")}</h3><p class="muted">${escapeHtml(team)}</p></div></div>
     <div class="profile-detail-grid">
@@ -1327,12 +1320,14 @@ document.getElementById("playerProfileModal").addEventListener("click", (event) 
 
 document.getElementById("closeAuth").addEventListener("click", closeAuth);
 document.getElementById("authForm").addEventListener("submit", submitAuth);
-editorNav.addEventListener("click", () => {
-  if (!isAdmin) { notify("Admin access required."); return; }
-  editorSection.classList.remove("hidden");
-  editorSection.scrollIntoView({ behavior: "smooth", block: "start" });
-  renderEditor();
-});
+if (editorNav) {
+  editorNav.addEventListener("click", () => {
+    if (!isAdmin) { notify("Admin access required."); return; }
+    if (editorSection) editorSection.classList.remove("hidden");
+    editorSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+    renderEditor();
+  });
+}
 document.getElementById("saveEditor").addEventListener("click", saveEditorSettings);
 const newWeekBtn = document.getElementById("newWeekBtn");
 if (newWeekBtn) newWeekBtn.addEventListener("click", () => { startNewWeek().catch(error => { console.error(error); notify(error?.message || "Could not create the new week."); }); });
