@@ -720,101 +720,210 @@ function editorMessage(text, error = false) {
 async function renderEditor() {
   if (!editorNav || !editorSection) return;
   editorNav.classList.toggle("hidden", !isAdmin);
-  if (!isAdmin || !currentUser || !currentWeek) {
+  if (!isAdmin || !currentUser) {
     editorSection.classList.add("hidden");
     return;
   }
+
+  // Do not hide the entire Editor just because a current week is missing.
+  // Keeping it visible lets the admin create the first/current week.
   editorSection.classList.remove("hidden");
-
-  try { await ensureWeekTeams(currentWeek.id); }
-  catch (error) { editorMessage(error?.message || "Could not prepare the five team slots.", true); return; }
-
-  document.getElementById("editWeekNumber").value = currentWeek.week_number ?? 1;
-  document.getElementById("editWeekTitle").value = currentWeek.title ?? "";
-  document.getElementById("editSelectionsOpen").checked = !!currentWeek.selections_open;
-
   const client = getSupabaseClient();
-  const { data: profiles, error: profilesError } = await client
-    .from("players").select("id, full_name").order("full_name");
-  if (profilesError) {
-    editorMessage("Could not load player profiles: " + profilesError.message, true);
-    return;
+  const statusNotice = document.getElementById("editorStatusNotice");
+  const currentWeekFields = ["editWeekNumber", "editWeekTitle", "editSelectionsOpen", "saveEditor", "saveAssignmentsBtn", "savePointsBtn"];
+  currentWeekFields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !currentWeek;
+  });
+
+  if (statusNotice) {
+    statusNotice.classList.toggle("hidden", !!currentWeek);
+    statusNotice.innerHTML = currentWeek
+      ? ""
+      : "<strong>No current week is set.</strong><span>Use ‘Start a new week’ below. Team and player profiles can still be managed here.</span>";
   }
-  const profileList = profiles || [];
 
-  await loadWeekTeams();
+  const weekNumberInput = document.getElementById("editWeekNumber");
+  const weekTitleInput = document.getElementById("editWeekTitle");
+  const openInput = document.getElementById("editSelectionsOpen");
+  if (weekNumberInput) weekNumberInput.value = currentWeek?.week_number ?? "";
+  if (weekTitleInput) weekTitleInput.value = currentWeek?.title ?? "";
+  if (openInput) openInput.checked = !!currentWeek?.selections_open;
 
-  const teamChecks = document.getElementById("editorTeams");
-  teamChecks.innerHTML = teams.map(team => {
-    const ids = team.players.map(p => p.id);
-    const rosterOptions = Array.from({length: 11}, (_, i) => {
-      const selectedId = ids[i] || "";
-      const options = [`<option value="">Choose player ${i + 1}</option>`]
-        .concat(profileList.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === selectedId ? "selected" : ""}>${escapeHtml(p.full_name || "Unnamed player")}</option>`));
-      return `<label class="roster-slot"><span>Player ${i + 1}</span><select data-roster-team="${escapeHtml(team.weekTeamId)}" data-roster-slot="${i}">${options.join("")}</select></label>`;
-    }).join("");
-    const captainOptions = [`<option value="">Choose captain</option>`]
-      .concat(profileList.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === team.captainId ? "selected" : ""}>${escapeHtml(p.full_name || "Unnamed player")}</option>`));
-    return `<div class="editor-team-card">
-      <label class="check-row"><input type="checkbox" data-editor-team="${escapeHtml(team.id)}" ${team.playing ? "checked" : ""}><strong>${escapeHtml(team.name)}</strong><span class="playing-status">${team.playing ? "Playing" : "Not playing"}</span></label>
-      <label>Real team captain<select data-editor-captain="${escapeHtml(team.id)}">${captainOptions.join("")}</select></label>
-      <div class="roster-grid">${rosterOptions}</div>
-      <div class="roster-note">${team.players.length} / 11 players currently saved</div>
-    </div>`;
-  }).join("");
+  try {
+    const [profilesResult, clubTeamsResult] = await Promise.all([
+      client.from("players").select("id, full_name").order("full_name"),
+      client.from("club_teams").select("id, name, sort_order").order("sort_order")
+    ]);
+    if (profilesResult.error) throw new Error("Could not load player profiles: " + profilesResult.error.message);
+    if (clubTeamsResult.error) throw new Error("Could not load club teams: " + clubTeamsResult.error.message);
+    const profileList = profilesResult.data || [];
+    const clubTeams = clubTeamsResult.data || [];
 
-  // Save a playing-team change immediately as well as through the main Save button.
-  // This prevents the checkbox state being lost when the editor refreshes.
-  document.querySelectorAll("[data-editor-team]").forEach(checkbox => {
-    checkbox.addEventListener("change", async () => {
-      if (!isAdmin || !currentWeek) return;
-      const teamId = checkbox.getAttribute("data-editor-team");
-      const status = checkbox.closest(".check-row")?.querySelector(".playing-status");
-      const wanted = checkbox.checked;
-      if (status) status.textContent = wanted ? "Playing" : "Not playing";
-      checkbox.disabled = true;
-      try {
-        const { error } = await getSupabaseClient()
-          .from("week_teams")
-          .update({ playing: wanted })
-          .eq("week_id", currentWeek.id)
-          .eq("team_id", teamId);
-        if (error) throw error;
-        teams = teams.map(t => t.id === teamId ? {...t, playing: wanted} : t);
-        editorMessage(`✅ ${wanted ? "Team marked as playing." : "Team marked as not playing."}`);
-      } catch (error) {
-        checkbox.checked = !wanted;
-        if (status) status.textContent = checkbox.checked ? "Playing" : "Not playing";
-        editorMessage(error?.message || "Could not save the playing-team setting.", true);
-      } finally {
-        checkbox.disabled = false;
+    if (currentWeek) {
+      await ensureWeekTeams(currentWeek.id);
+      await loadWeekTeams();
+    } else {
+      teams = [];
+    }
+
+    const teamChecks = document.getElementById("editorTeams");
+    if (teamChecks) {
+      if (!currentWeek) {
+        teamChecks.innerHTML = clubTeams.length ? clubTeams.map(team => `
+          <div class="editor-team-card">
+            <div class="team-management-row"><strong>${escapeHtml(team.name)}</strong><button type="button" class="danger" data-remove-team="${escapeHtml(team.id)}" data-remove-team-name="${escapeHtml(team.name)}">Remove team</button></div>
+            <p class="muted">Create a week to select this team’s playing status and weekly squad.</p>
+          </div>`).join("") : `<div class="notice"><strong>No teams have been added yet.</strong><span>Use the Add team box above.</span></div>`;
+      } else {
+        teamChecks.innerHTML = teams.map(team => {
+          const ids = team.players.map(p => p.id);
+          const rosterOptions = Array.from({length: 11}, (_, i) => {
+            const selectedId = ids[i] || "";
+            const options = [`<option value="">Choose player ${i + 1}</option>`]
+              .concat(profileList.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === selectedId ? "selected" : ""}>${escapeHtml(p.full_name || "Unnamed player")}</option>`));
+            return `<label class="roster-slot"><span>Player ${i + 1}</span><select data-roster-team="${escapeHtml(team.weekTeamId)}" data-roster-slot="${i}">${options.join("")}</select></label>`;
+          }).join("");
+          const captainOptions = [`<option value="">Choose captain</option>`]
+            .concat(profileList.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === team.captainId ? "selected" : ""}>${escapeHtml(p.full_name || "Unnamed player")}</option>`));
+          return `<div class="editor-team-card">
+            <div class="team-management-row"><label class="check-row"><input type="checkbox" data-editor-team="${escapeHtml(team.id)}" ${team.playing ? "checked" : ""}><strong>${escapeHtml(team.name)}</strong><span class="playing-status">${team.playing ? "Playing" : "Not playing"}</span></label><button type="button" class="danger" data-remove-team="${escapeHtml(team.id)}" data-remove-team-name="${escapeHtml(team.name)}">Remove team</button></div>
+            <label>Real team captain<select data-editor-captain="${escapeHtml(team.id)}">${captainOptions.join("")}</select></label>
+            <div class="roster-grid">${rosterOptions}</div>
+            <div class="roster-note">${team.players.length} / 11 players currently saved</div>
+          </div>`;
+        }).join("");
       }
+    }
+
+    // Label every points column clearly. The stored `winning` value is the
+    // existing captaincy/winning bonus field, so no database schema change is needed.
+    const points = document.getElementById("editorPoints");
+    const playingTeams = currentWeek ? teams.filter(team => team.playing).sort((a,b) => a.sortOrder - b.sortOrder) : [];
+    const allPlayers = playingTeams.flatMap(team => team.players.map(p => ({...p, teamName: team.name})));
+    if (points) {
+      points.innerHTML = currentWeek
+        ? (allPlayers.length ? `
+          <div class="point-row point-headings"><strong>Player</strong><strong>Batting</strong><strong>Bowling</strong><strong>Fielding</strong><strong>Captaincy / winning bonus</strong></div>
+          ${playingTeams.map(team => `
+            <div class="points-team-group">
+              <h4>${escapeHtml(team.name)}</h4>
+              ${team.players.map(p => `<div class="point-row" data-point-player="${escapeHtml(p.id)}">
+                <div><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(team.name)}</small></div>
+                <input aria-label="${escapeHtml(p.name)} batting points" type="number" min="0" step="1" data-point="batting" placeholder="Batting">
+                <input aria-label="${escapeHtml(p.name)} bowling points" type="number" min="0" step="1" data-point="bowling" placeholder="Bowling">
+                <input aria-label="${escapeHtml(p.name)} fielding points" type="number" min="0" step="1" data-point="fielding" placeholder="Fielding">
+                <input aria-label="${escapeHtml(p.name)} captaincy or winning bonus points" type="number" min="0" step="1" data-point="winning" placeholder="Captaincy / bonus">
+              </div>`).join("")}
+            </div>`).join("")}`
+          : `<div class="notice"><strong>No players assigned to playing teams.</strong><span>Tick the teams that are playing, select players from the existing profile database, and save the weekly rosters first.</span></div>`)
+        : `<div class="notice"><strong>Points are unavailable until a week exists.</strong><span>Create a week below first.</span></div>`;
+    }
+    await loadCurrentPointValues(allPlayers);
+
+    document.querySelectorAll("[data-editor-team]").forEach(checkbox => {
+      checkbox.addEventListener("change", async () => {
+        if (!isAdmin || !currentWeek) return;
+        const teamId = checkbox.getAttribute("data-editor-team");
+        const status = checkbox.closest(".check-row")?.querySelector(".playing-status");
+        const wanted = checkbox.checked;
+        if (status) status.textContent = wanted ? "Playing" : "Not playing";
+        checkbox.disabled = true;
+        try {
+          const { error } = await client.from("week_teams")
+            .update({ playing: wanted })
+            .eq("week_id", currentWeek.id)
+            .eq("team_id", teamId);
+          if (error) throw error;
+          teams = teams.map(t => t.id === teamId ? {...t, playing: wanted} : t);
+          editorMessage(`✅ ${wanted ? "Team marked as playing." : "Team marked as not playing."}`);
+          // Refresh both the public picker and the Editor's points area.
+          render();
+        } catch (error) {
+          checkbox.checked = !wanted;
+          if (status) status.textContent = checkbox.checked ? "Playing" : "Not playing";
+          editorMessage(error?.message || "Could not save the playing-team setting.", true);
+        } finally {
+          checkbox.disabled = false;
+        }
+      });
     });
-  });
 
-  const profileLibrary = document.getElementById("editorProfileLibrary");
-  profileLibrary.innerHTML = profileList.length
-    ? profileList.map(p => `<div class="profile-row"><strong>${escapeHtml(p.full_name || "Unnamed player")}</strong><span>Permanent profile</span><button type="button" class="danger profile-remove" data-remove-player="${escapeHtml(p.id)}" data-remove-player-name="${escapeHtml(p.full_name || "Unnamed player")}">Remove</button></div>`).join("")
-    : `<div class="notice"><strong>No player profiles yet.</strong><span>Create them once below. After that, use the dropdowns above every week.</span></div>`;
+    const profileLibrary = document.getElementById("editorProfileLibrary");
+    if (profileLibrary) {
+      profileLibrary.innerHTML = profileList.length
+        ? profileList.map(p => `<div class="profile-row"><strong>${escapeHtml(p.full_name || "Unnamed player")}</strong><span>Permanent profile</span><button type="button" class="danger profile-remove" data-remove-player="${escapeHtml(p.id)}" data-remove-player-name="${escapeHtml(p.full_name || "Unnamed player")}">Remove</button></div>`).join("")
+        : `<div class="notice"><strong>No player profiles yet.</strong><span>Create them once below. After that, use the dropdowns above every week.</span></div>`;
+    }
 
-  const points = document.getElementById("editorPoints");
-  const playingTeams = teams.filter(team => team.playing).sort((a,b) => a.sortOrder - b.sortOrder);
-  const allPlayers = playingTeams.flatMap(team => team.players.map(p => ({...p, teamName: team.name})));
-  points.innerHTML = allPlayers.length ? playingTeams.map(team => `
-    <div class="points-team-group">
-      <h4>${escapeHtml(team.name)}</h4>
-      ${team.players.map(p => `<div class="point-row" data-point-player="${escapeHtml(p.id)}">
-        <div><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(team.name)}</small></div>
-        <input type="number" min="0" step="1" data-point="batting" placeholder="Batting">
-        <input type="number" min="0" step="1" data-point="bowling" placeholder="Bowling">
-        <input type="number" min="0" step="1" data-point="fielding" placeholder="Fielding">
-        <input type="number" min="0" step="1" data-point="winning" placeholder="Winning">
-      </div>`).join("")}
-    </div>`).join("") : `<div class="notice"><strong>No playing-team players assigned.</strong><span>Tick the teams that are playing and choose their 11 players above.</span></div>`;
-  await loadCurrentPointValues(allPlayers);
-  document.querySelectorAll("[data-remove-player]").forEach(button => {
-    button.addEventListener("click", () => removePlayerProfile(button.getAttribute("data-remove-player"), button.getAttribute("data-remove-player-name")));
-  });
+    document.querySelectorAll("[data-remove-player]").forEach(button => {
+      button.addEventListener("click", () => removePlayerProfile(button.getAttribute("data-remove-player"), button.getAttribute("data-remove-player-name")));
+    });
+    document.querySelectorAll("[data-remove-team]").forEach(button => {
+      button.addEventListener("click", () => removeClubTeam(button.getAttribute("data-remove-team"), button.getAttribute("data-remove-team-name")));
+    });
+  } catch (error) {
+    console.error("Could not render Editor", error);
+    editorMessage(error?.message || "Could not load the Editor. Check the browser console for details.", true);
+  }
+}
+
+async function addClubTeam() {
+  if (!isAdmin || !currentUser) return editorMessage("You need Admin access to add teams.", true);
+  const input = document.getElementById("newClubTeamName");
+  const name = input?.value?.trim();
+  if (!name) return editorMessage("Enter a team name first.", true);
+  editorMessage("Adding team…");
+  try {
+    const client = getSupabaseClient();
+    const { data: existing, error: readError } = await client.from("club_teams").select("name, sort_order");
+    if (readError) throw readError;
+    if ((existing || []).some(team => (team.name || "").trim().toLowerCase() === name.toLowerCase())) {
+      throw new Error("A team with that name already exists.");
+    }
+    const sortOrder = Math.max(0, ...(existing || []).map(team => Number(team.sort_order) || 0)) + 1;
+    const { data: team, error } = await client.from("club_teams").insert({name, sort_order: sortOrder}).select("id, name, sort_order").single();
+    if (error) throw error;
+    if (currentWeek) {
+      const { error: weekTeamError } = await client.from("week_teams").insert({week_id: currentWeek.id, team_id: team.id, playing: false, captain_player_id: null});
+      if (weekTeamError) throw weekTeamError;
+    }
+    if (input) input.value = "";
+    editorMessage(`✅ Team “${name}” added.`);
+    if (currentWeek) await loadWeekTeams();
+    render();
+  } catch (error) {
+    console.error(error);
+    editorMessage(error?.message || "Could not add team.", true);
+  }
+}
+
+async function removeClubTeam(teamId, teamName) {
+  if (!isAdmin || !currentUser) return editorMessage("You need Admin access to remove teams.", true);
+  if (!teamId) return;
+  const accepted = confirm(`Remove “${teamName}” permanently? This will delete its weekly team slots and roster assignments from every week. Player profiles and fantasy points remain, but this action cannot be undone.`);
+  if (!accepted) return;
+  editorMessage(`Removing ${teamName}…`);
+  try {
+    const client = getSupabaseClient();
+    const { data: weekRows, error: weekRowsError } = await client.from("week_teams").select("id").eq("team_id", teamId);
+    if (weekRowsError) throw weekRowsError;
+    for (const row of weekRows || []) {
+      const { error } = await client.from("week_players").delete().eq("week_team_id", row.id);
+      if (error) throw error;
+    }
+    const { error: deleteWeekTeamsError } = await client.from("week_teams").delete().eq("team_id", teamId);
+    if (deleteWeekTeamsError) throw deleteWeekTeamsError;
+    const { error } = await client.from("club_teams").delete().eq("id", teamId);
+    if (error) throw error;
+    editorMessage(`✅ Team “${teamName}” removed.`);
+    if (currentWeek) await loadWeekTeams();
+    render();
+    await loadPublicProfiles();
+  } catch (error) {
+    console.error(error);
+    editorMessage(error?.message || "Could not remove team.", true);
+  }
 }
 
 async function savePlayerAssignments() {
@@ -861,21 +970,27 @@ async function savePlayerAssignments() {
 }
 
 async function removePlayerProfile(playerId, playerName) {
-  if (!isAdmin) return editorMessage("You need Admin access to remove player profiles.", true);
+  if (!isAdmin || !currentUser) return editorMessage("You need Admin access to remove player profiles.", true);
   if (!playerId) return;
-  if (!confirm(`Remove the permanent profile for ${playerName}? This only works if the player is not used in saved weekly/fantasy data.`)) return;
+  if (!confirm(`Permanently delete ${playerName}? This will remove the player's weekly squad entries, points, fantasy-team selection entries, and captain references from saved weeks. This cannot be undone.`)) return;
+  editorMessage(`Removing ${playerName}…`);
   try {
     const client = getSupabaseClient();
-    const checks = [["week_players","player_id"],["player_week_points","player_id"],["fantasy_team_players","player_id"]];
-    for (const [table, column] of checks) {
-      const { data, error } = await client.from(table).select(column).eq(column, playerId).limit(1);
+    const { error: weekCaptainError } = await client.from("week_teams").update({captain_player_id: null}).eq("captain_player_id", playerId);
+    if (weekCaptainError) throw weekCaptainError;
+    const { error: fantasyCaptainError } = await client.from("fantasy_teams").update({captain_player_id: null}).eq("captain_player_id", playerId);
+    if (fantasyCaptainError) throw fantasyCaptainError;
+    for (const [table, column] of [["week_players","player_id"],["fantasy_team_players","player_id"],["player_week_points","player_id"]]) {
+      const { error } = await client.from(table).delete().eq(column, playerId);
       if (error) throw error;
-      if ((data || []).length) throw new Error(`${playerName} is already used in saved fantasy data. Remove those weekly records first.`);
     }
     const { error } = await client.from("players").delete().eq("id", playerId);
     if (error) throw error;
     editorMessage(`✅ ${playerName} profile removed.`);
+    await loadWeekTeams();
     await renderEditor();
+    await render();
+    await Promise.all([loadPublicProfiles(), loadLeaderboard()]);
   } catch (error) {
     console.error(error);
     editorMessage(error?.message || "Could not remove player profile.", true);
@@ -982,6 +1097,7 @@ async function saveEditorSettings() {
       }
     });
     await Promise.all([loadPublicProfiles(), loadLeaderboard()]);
+    render();
   } catch (error) {
     console.error(error);
     editorMessage(error?.message || "Could not save week settings and playing teams.", true);
@@ -1048,7 +1164,7 @@ async function startNewWeek() {
 
     await loadWeek();
     await loadWeekTeams();
-    await renderEditor();
+    render();
 
     numberInput.value = "";
     titleInput.value = "";
@@ -1332,6 +1448,8 @@ document.getElementById("saveEditor").addEventListener("click", saveEditorSettin
 const newWeekBtn = document.getElementById("newWeekBtn");
 if (newWeekBtn) newWeekBtn.addEventListener("click", () => { startNewWeek().catch(error => { console.error(error); notify(error?.message || "Could not create the new week."); }); });
 document.getElementById("addPlayerProfilesBtn").addEventListener("click", addPlayerProfilesBulk);
+const addClubTeamBtn = document.getElementById("addClubTeamBtn");
+if (addClubTeamBtn) addClubTeamBtn.addEventListener("click", addClubTeam);
 document.getElementById("saveAssignmentsBtn").addEventListener("click", savePlayerAssignments);
 document.getElementById("savePointsBtn").addEventListener("click", savePlayerPoints);
 

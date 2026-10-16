@@ -95,6 +95,7 @@
 <section class="section grey hidden" id="editor">
 <div class="title-row"><div><p class="label">ADMIN</p><h2>Editor</h2><p class="muted">Build each week's real teams from your permanent player profiles.</p></div><span class="pill">Admin access</span></div>
 <div class="editor-card">
+<div id="editorStatusNotice" class="notice hidden" aria-live="polite"></div>
 <h3>Current week</h3>
 <div class="editor-grid"><label>Week number<input id="editWeekNumber" type="number" min="1" max="999"></label><label>Week title<input id="editWeekTitle" type="text" maxlength="100"></label></div>
 <label class="check-row"><input id="editSelectionsOpen" type="checkbox"> Selections are open</label>
@@ -106,7 +107,11 @@
 <button id="newWeekBtn" class="secondary" type="button">Start new week</button>
 
 <h3>Teams &amp; weekly rosters</h3>
-<p class="muted">Tick the teams that are playing. For each team, choose its real captain and its 11 players from your permanent profiles. Then save the rosters.</p>
+<p class="muted">Add or remove club teams here. Tick the teams that are playing this week. For each playing team, choose its real captain and its 11 players from your existing player profiles, then save the rosters.</p>
+<div class="editor-grid team-create-row">
+  <label for="newClubTeamName">Add a team<input id="newClubTeamName" type="text" maxlength="80" placeholder="e.g. Development XI"></label>
+  <div class="team-create-action"><button id="addClubTeamBtn" class="secondary" type="button">Add team</button></div>
+</div>
 <div id="editorTeams" class="editor-teams"></div>
 <button id="saveAssignmentsBtn" class="primary" type="button">Save weekly team rosters</button>
 

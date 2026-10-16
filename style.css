@@ -108,3 +108,16 @@ textarea{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:10px;fon
 @media(max-width:760px){.public-profiles{grid-template-columns:1fr}.profile-detail-grid,.profile-detail-grid.four{grid-template-columns:1fr 1fr}}
 
 .check-row .playing-status{margin-left:auto;font-size:12px;font-weight:700;color:#687789}.check-row input:checked + strong + .playing-status{color:#087443}
+
+
+/* Editor usability additions */
+.team-create-action{display:flex;align-items:end;padding-bottom:15px}
+.team-create-action button{min-height:42px}
+.team-management-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.team-management-row .check-row{flex:1;margin-bottom:0}
+.danger{border:1px solid #efb5b5;background:#fff5f5;color:#a52222;border-radius:8px;padding:8px 11px;font:inherit;font-size:13px;font-weight:800;cursor:pointer}
+.danger:hover{background:#ffe8e8}
+.point-headings{border:0;background:#eaf0f7;font-size:12px;color:#344861;font-weight:800}
+.point-headings strong{padding:4px 2px}
+.point-row input{min-width:0}
+@media(max-width:760px){.team-create-action{padding-bottom:15px}.point-headings{display:none}}
