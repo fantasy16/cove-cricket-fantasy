@@ -96,13 +96,14 @@
 <div class="title-row"><div><p class="label">ADMIN</p><h2>Editor</h2><p class="muted">Build each week's real teams from your permanent player profiles.</p></div><span class="pill">Admin access</span></div>
 <div class="editor-card">
 <div id="editorStatusNotice" class="notice hidden" aria-live="polite"></div>
-<h3>Current week</h3>
+<h3>Week settings</h3>
+<div class="editor-grid"><label>View / edit an existing week<select id="editorWeekPicker"><option value="">Loading weeks…</option></select></label></div>
 <div class="editor-grid"><label>Week number<input id="editWeekNumber" type="number" min="1" max="999"></label><label>Week title<input id="editWeekTitle" type="text" maxlength="100"></label></div>
 <label class="check-row"><input id="editSelectionsOpen" type="checkbox"> Selections are open</label>
 <button id="saveEditor" class="primary" type="button">Save week settings &amp; playing teams</button>
 
 <h3>Start a new week</h3>
-<p class="muted">This creates a fresh week and keeps all your player profiles. You can configure the teams later.</p>
+<p class="muted">Enter a new week number to create it. If that week already exists, you will be asked whether to reset it and delete its saved fantasy teams, scores, squads and captains. Permanent player profiles and club-team definitions are kept.</p>
 <div class="editor-grid"><label>New week number<input id="newWeekNumber" type="number" min="1" max="999" placeholder="2"></label><label>New week title<input id="newWeekTitle" type="text" maxlength="100" placeholder="Week 2"></label></div>
 <button id="newWeekBtn" class="secondary" type="button">Start new week</button>
 
@@ -123,7 +124,7 @@ Sam Jones"></textarea></label>
 <button id="addPlayerProfilesBtn" class="secondary" type="button">Create player profiles</button>
 <div id="editorProfileLibrary" class="editor-profile-library"></div>
 
-<h3>Enter points</h3><p class="muted">Players are grouped by the team they are playing for this week. Only teams marked as playing are shown.</p>
+<h3>Enter points</h3><p class="muted">Enter Batting, Bowling, Fielding and Captaincy / winning-bonus points for every player in a team marked as playing for the selected week. Use Save player points when finished. These scores are saved separately for each week.</p>
 <div id="editorPoints" class="editor-points"></div>
 <button id="savePointsBtn" class="primary" type="button">Save player points</button>
 <p id="editorMessage" class="auth-message" aria-live="polite"></p>
