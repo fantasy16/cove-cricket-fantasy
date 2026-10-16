@@ -374,6 +374,12 @@ function showMyTeamOverlay() {
   subtitle.className = "muted";
   subtitle.textContent = `Week ${currentWeek.week_number}`;
 
+  // Display the fantasy captain separately so they remain visible even when
+  // they are not one of the selected player slots.
+  const captainPanel = document.createElement("div");
+  captainPanel.style.cssText = "display:flex;align-items:center;gap:12px;margin:14px 0;padding:14px 16px;border:1px solid #b9d8ff;border-radius:12px;background:#eef6ff";
+  captainPanel.innerHTML = '<div aria-hidden="true" style="width:42px;height:42px;flex:0 0 42px;border-radius:50%;background:#071b2f;color:white;display:grid;place-items:center;font-size:21px">C</div><div><div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#1760a9;font-weight:800">Your fantasy captain</div><strong id="myTeamCaptainName">Loading captain…</strong><div id="myTeamCaptainClub" style="font-size:12px;color:#687789;margin-top:3px"></div></div>';
+
   const total = document.createElement("div");
   total.style.cssText = "margin:16px 0;padding:15px;border:1px solid #dce4ee;border-radius:10px;background:#f7f9fc;font-weight:800";
   total.textContent = "Loading your points…";
@@ -381,7 +387,7 @@ function showMyTeamOverlay() {
   const list = document.createElement("div");
   list.style.cssText = "display:grid;gap:10px";
 
-  card.append(close, title, subtitle, total, list);
+  card.append(close, title, subtitle, captainPanel, total, list);
   overlay.appendChild(card);
   document.body.appendChild(overlay);
 
@@ -400,6 +406,21 @@ function showMyTeamOverlay() {
         .maybeSingle();
       if (savedError) throw savedError;
       if (!saved) throw new Error("Your saved team could not be found.");
+
+      const captainNameEl = captainPanel.querySelector("#myTeamCaptainName");
+      const captainClubEl = captainPanel.querySelector("#myTeamCaptainClub");
+      if (saved.captain_player_id) {
+        const [{ data: captainPlayer, error: captainPlayerError }] = await Promise.all([
+          client.from("players").select("id, full_name").eq("id", saved.captain_player_id).maybeSingle()
+        ]);
+        if (captainPlayerError) throw captainPlayerError;
+        const captainTeam = teams.find(team => team.captainId === saved.captain_player_id);
+        if (captainNameEl) captainNameEl.textContent = captainPlayer?.full_name || captainTeam?.captainName || "Selected captain";
+        if (captainClubEl) captainClubEl.textContent = captainTeam?.name || "Club captain";
+      } else {
+        if (captainNameEl) captainNameEl.textContent = "Captain not chosen";
+        if (captainClubEl) captainClubEl.textContent = "Choose a captain on the team selection page.";
+      }
 
       const { data: items, error: itemsError } = await client
         .from("fantasy_team_players")
