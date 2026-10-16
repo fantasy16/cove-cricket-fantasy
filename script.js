@@ -66,7 +66,15 @@ async function loadWeek() {
   }
 
   if (!data) {
-    notify("No current fantasy week has been created yet.");
+    currentWeek = null;
+    const weekNumberLabel = document.getElementById("weekNumber");
+    const leaderboardWeekLabel = document.getElementById("leaderboardWeek");
+    const weekStatusLabel = document.getElementById("weekStatus");
+    const weekOpenLabel = document.getElementById("weekOpen");
+    if (weekNumberLabel) weekNumberLabel.textContent = "No week yet";
+    if (leaderboardWeekLabel) leaderboardWeekLabel.textContent = "No week yet";
+    if (weekStatusLabel) weekStatusLabel.textContent = "Create a week in the Editor";
+    if (weekOpenLabel) { weekOpenLabel.textContent = "● Locked"; weekOpenLabel.className = "team-off"; }
     return;
   }
 
@@ -717,6 +725,31 @@ function editorMessage(text, error = false) {
   el.style.color = error ? "#b42318" : "#687789";
 }
 
+function getNextWeekNumber(weekRows, startAt = null) {
+  const used = new Set((weekRows || []).map(row => Number(row.week_number)).filter(Number.isFinite));
+  const highest = Math.max(0, ...used);
+  let candidate = Number.isInteger(Number(startAt)) && Number(startAt) > 0
+    ? Number(startAt)
+    : highest + 1;
+  candidate = Math.max(1, candidate);
+  while (used.has(candidate) && candidate <= 999) candidate += 1;
+  if (candidate > 999) throw new Error("All week numbers from 1 to 999 are already in use.");
+  return candidate;
+}
+
+async function fetchWeekNumberRows() {
+  const { data, error } = await getSupabaseClient()
+    .from("weeks")
+    .select("id, week_number, title, is_current")
+    .order("week_number");
+  if (error) throw error;
+  return data || [];
+}
+
+function isGenericWeekTitle(title) {
+  return !title || /^week\s*\d+$/i.test(title.trim());
+}
+
 async function renderEditor() {
   if (!editorNav || !editorSection) return;
   editorNav.classList.toggle("hidden", !isAdmin);
@@ -751,14 +784,33 @@ async function renderEditor() {
   if (openInput) openInput.checked = !!currentWeek?.selections_open;
 
   try {
-    const [profilesResult, clubTeamsResult] = await Promise.all([
+    const [profilesResult, clubTeamsResult, weekRowsResult] = await Promise.all([
       client.from("players").select("id, full_name").order("full_name"),
-      client.from("club_teams").select("id, name, sort_order").order("sort_order")
+      client.from("club_teams").select("id, name, sort_order").order("sort_order"),
+      client.from("weeks").select("id, week_number, title, is_current").order("week_number")
     ]);
     if (profilesResult.error) throw new Error("Could not load player profiles: " + profilesResult.error.message);
     if (clubTeamsResult.error) throw new Error("Could not load club teams: " + clubTeamsResult.error.message);
+    if (weekRowsResult.error) throw new Error("Could not load week numbers: " + weekRowsResult.error.message);
     const profileList = profilesResult.data || [];
     const clubTeams = clubTeamsResult.data || [];
+    const existingWeekRows = weekRowsResult.data || [];
+    const newWeekNumberInput = document.getElementById("newWeekNumber");
+    const newWeekTitleInput = document.getElementById("newWeekTitle");
+    const suggestedWeekNumber = getNextWeekNumber(existingWeekRows);
+    if (newWeekNumberInput) {
+      const oldNumberValue = Number(newWeekNumberInput.value);
+      const numberAlreadyUsed = existingWeekRows.some(row => Number(row.week_number) === oldNumberValue);
+      if (!newWeekNumberInput.value.trim() || !Number.isInteger(oldNumberValue) || oldNumberValue < 1 || numberAlreadyUsed) {
+        newWeekNumberInput.value = String(suggestedWeekNumber);
+        if (newWeekTitleInput && isGenericWeekTitle(newWeekTitleInput.value)) {
+          newWeekTitleInput.value = `Week ${suggestedWeekNumber}`;
+        }
+      }
+    }
+    if (newWeekTitleInput && !newWeekTitleInput.value.trim() && newWeekNumberInput?.value) {
+      newWeekTitleInput.value = `Week ${newWeekNumberInput.value}`;
+    }
 
     if (currentWeek) {
       await ensureWeekTeams(currentWeek.id);
@@ -784,16 +836,55 @@ async function renderEditor() {
               .concat(profileList.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === selectedId ? "selected" : ""}>${escapeHtml(p.full_name || "Unnamed player")}</option>`));
             return `<label class="roster-slot"><span>Player ${i + 1}</span><select data-roster-team="${escapeHtml(team.weekTeamId)}" data-roster-slot="${i}">${options.join("")}</select></label>`;
           }).join("");
-          const captainOptions = [`<option value="">Choose captain</option>`]
+          const captainOptions = [`<option value="">Choose captain from this squad</option>`]
             .concat(profileList.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === team.captainId ? "selected" : ""}>${escapeHtml(p.full_name || "Unnamed player")}</option>`));
           return `<div class="editor-team-card">
             <div class="team-management-row"><label class="check-row"><input type="checkbox" data-editor-team="${escapeHtml(team.id)}" ${team.playing ? "checked" : ""}><strong>${escapeHtml(team.name)}</strong><span class="playing-status">${team.playing ? "Playing" : "Not playing"}</span></label><button type="button" class="danger" data-remove-team="${escapeHtml(team.id)}" data-remove-team-name="${escapeHtml(team.name)}">Remove team</button></div>
-            <label>Real team captain<select data-editor-captain="${escapeHtml(team.id)}">${captainOptions.join("")}</select></label>
+            <label>Real team captain (must be one of the 11 selected players)<select data-editor-captain="${escapeHtml(team.id)}">${captainOptions.join("")}</select></label>
             <div class="roster-grid">${rosterOptions}</div>
-            <div class="roster-note">${team.players.length} / 11 players currently saved</div>
+            <div class="roster-note" data-roster-count="${escapeHtml(team.weekTeamId)}">${ids.filter(Boolean).length} / 11 players selected</div>
           </div>`;
         }).join("");
       }
+    }
+
+    if (currentWeek) {
+      document.querySelectorAll(".editor-team-card").forEach(card => {
+        const rosterSelects = [...card.querySelectorAll("select[data-roster-team]")];
+        const captainSelect = card.querySelector("select[data-editor-captain]");
+        const countEl = card.querySelector("[data-roster-count]");
+        if (!rosterSelects.length || !captainSelect) return;
+
+        const refreshSquadControls = () => {
+          const selectedIds = rosterSelects.map(select => select.value).filter(Boolean);
+          const uniqueCount = new Set(selectedIds).size;
+          // Disable a name in other slots once it is already used in this squad.
+          rosterSelects.forEach(select => {
+            const ownValue = select.value;
+            const usedElsewhere = new Set(rosterSelects.filter(other => other !== select).map(other => other.value).filter(Boolean));
+            [...select.options].forEach(option => {
+              option.disabled = !!option.value && usedElsewhere.has(option.value) && option.value !== ownValue;
+            });
+          });
+          if (countEl) countEl.textContent = `${uniqueCount} / 11 players selected`;
+          const oldCaptainId = captainSelect.value;
+          // Before any slot is chosen, keep all names available; after that, only
+          // offer players currently chosen for this team's 11-player squad.
+          const candidates = selectedIds.length
+            ? profileList.filter(player => selectedIds.includes(player.id))
+            : profileList;
+          captainSelect.innerHTML = `<option value="">Choose captain from this squad</option>` + candidates.map(player =>
+            `<option value="${escapeHtml(player.id)}">${escapeHtml(player.full_name || "Unnamed player")}</option>`
+          ).join("");
+          if (oldCaptainId && candidates.some(player => player.id === oldCaptainId)) {
+            captainSelect.value = oldCaptainId;
+          } else if (oldCaptainId && selectedIds.length) {
+            captainSelect.value = "";
+          }
+        };
+        rosterSelects.forEach(select => select.addEventListener("change", refreshSquadControls));
+        refreshSquadControls();
+      });
     }
 
     // Label every points column clearly. The stored `winning` value is the
@@ -838,7 +929,9 @@ async function renderEditor() {
           teams = teams.map(t => t.id === teamId ? {...t, playing: wanted} : t);
           editorMessage(`✅ ${wanted ? "Team marked as playing." : "Team marked as not playing."}`);
           // Refresh both the public picker and the Editor's points area.
+          await loadWeekTeams();
           render();
+          await renderEditor();
         } catch (error) {
           checkbox.checked = !wanted;
           if (status) status.textContent = checkbox.checked ? "Playing" : "Not playing";
@@ -892,6 +985,7 @@ async function addClubTeam() {
     editorMessage(`✅ Team “${name}” added.`);
     if (currentWeek) await loadWeekTeams();
     render();
+    await renderEditor();
   } catch (error) {
     console.error(error);
     editorMessage(error?.message || "Could not add team.", true);
@@ -920,6 +1014,7 @@ async function removeClubTeam(teamId, teamName) {
     if (currentWeek) await loadWeekTeams();
     render();
     await loadPublicProfiles();
+    await renderEditor();
   } catch (error) {
     console.error(error);
     editorMessage(error?.message || "Could not remove team.", true);
@@ -927,24 +1022,39 @@ async function removeClubTeam(teamId, teamName) {
 }
 
 async function savePlayerAssignments() {
-  if (!isAdmin || !currentWeek) return editorMessage("You need Admin access to assign player profiles.", true);
-  editorMessage("Saving weekly team rosters…");
+  if (!isAdmin || !currentWeek) return editorMessage("You need Admin access and a current week to assign player profiles.", true);
+  editorMessage("Checking weekly team rosters…");
   try {
     const client = getSupabaseClient();
     await ensureWeekTeams(currentWeek.id);
     const rosterRows = [];
     const seenByTeam = new Map();
+    const captainByTeam = new Map();
+    const allAssigned = [];
+
+    // Validate every roster and captain before deleting any saved roster rows.
+    // This prevents a bad captain choice from partially replacing the week.
     for (const team of teams) {
       const selects = [...document.querySelectorAll(`[data-roster-team="${CSS.escape(team.weekTeamId)}"]`)];
-      const ids = selects.map(s => s.value).filter(Boolean);
-      if (team.playing && ids.length !== 11) throw new Error(`${team.name} is marked as playing, so choose exactly 11 player profiles.`);
+      const ids = selects.map(select => select.value).filter(Boolean);
+      if (team.playing && ids.length !== 11) {
+        throw new Error(`${team.name} is marked as playing. Choose exactly 11 players (currently ${ids.length}).`);
+      }
       if (new Set(ids).size !== ids.length) throw new Error(`${team.name} has the same player selected more than once.`);
+      const captain = document.querySelector(`[data-editor-captain="${CSS.escape(team.id)}"]`)?.value || null;
+      if (team.playing && !captain) throw new Error(`${team.name}: choose the real captain from the selected 11 players.`);
+      if (captain && !ids.includes(captain)) throw new Error(`${team.name}: the real captain must be one of the selected players.`);
       seenByTeam.set(team.weekTeamId, ids);
-      ids.forEach(player_id => rosterRows.push({week_team_id: team.weekTeamId, player_id}));
+      captainByTeam.set(team.weekTeamId, captain);
+      ids.forEach(player_id => {
+        rosterRows.push({week_team_id: team.weekTeamId, player_id});
+        allAssigned.push(player_id);
+      });
     }
-    const allAssigned = [];
-    for (const ids of seenByTeam.values()) allAssigned.push(...ids);
-    if (new Set(allAssigned).size !== allAssigned.length) throw new Error("A player cannot be assigned to more than one team in the same week.");
+
+    if (new Set(allAssigned).size !== allAssigned.length) {
+      throw new Error("A player cannot be assigned to more than one team in the same week. Remove duplicate selections first.");
+    }
 
     const { data: weekTeamRows, error: teamError } = await client.from("week_teams").select("id").eq("week_id", currentWeek.id);
     if (teamError) throw teamError;
@@ -952,21 +1062,28 @@ async function savePlayerAssignments() {
       const { error } = await client.from("week_players").delete().eq("week_team_id", row.id);
       if (error) throw error;
     }
-    if (rosterRows.length) { const { error } = await client.from("week_players").insert(rosterRows); if (error) throw error; }
-
-    // Captains are stored with the team and must be one of that team's selected players.
-    for (const team of teams) {
-      const captain = document.querySelector(`[data-editor-captain="${CSS.escape(team.id)}"]`)?.value || null;
-      const ids = seenByTeam.get(team.weekTeamId) || [];
-      if (captain && !ids.includes(captain)) throw new Error(`${team.name}: the real captain must be one of the 11 selected players.`);
-      const { error } = await client.from("week_teams").update({captain_player_id: captain}).eq("id", team.weekTeamId);
+    if (rosterRows.length) {
+      const { error } = await client.from("week_players").insert(rosterRows);
       if (error) throw error;
     }
-    editorMessage("✅ Weekly team rosters and captains saved.");
+
+    for (const team of teams) {
+      const captain = captainByTeam.get(team.weekTeamId) || null;
+      const { error } = await client.from("week_teams")
+        .update({ captain_player_id: captain })
+        .eq("id", team.weekTeamId);
+      if (error) throw error;
+    }
+
+    editorMessage("✅ Weekly 11-player squads and real captains saved.");
     await loadWeekTeams();
+    render();
     await renderEditor();
     await Promise.all([loadPublicProfiles(), loadLeaderboard()]);
-  } catch (error) { console.error(error); editorMessage(error?.message || "Could not save weekly rosters.", true); }
+  } catch (error) {
+    console.error(error);
+    editorMessage(error?.message || "Could not save weekly rosters.", true);
+  }
 }
 
 async function removePlayerProfile(playerId, playerName) {
@@ -1068,10 +1185,22 @@ async function saveEditorSettings() {
   try {
     const client = getSupabaseClient();
     await ensureWeekTeams(currentWeek.id);
-    const weekNumber = Math.max(1, Math.min(999, Number(document.getElementById("editWeekNumber").value) || 1));
-    const title = document.getElementById("editWeekTitle").value.trim() || `Week ${weekNumber}`;
-    const selectionsOpen = document.getElementById("editSelectionsOpen").checked;
-    const { error } = await client.from("weeks").update({week_number: weekNumber, title, selections_open: selectionsOpen}).eq("id", currentWeek.id);
+    const numberValue = Number(document.getElementById("editWeekNumber")?.value);
+    if (!Number.isInteger(numberValue) || numberValue < 1 || numberValue > 999) {
+      throw new Error("Enter a week number from 1 to 999.");
+    }
+    const weekNumber = numberValue;
+    const title = document.getElementById("editWeekTitle")?.value.trim() || `Week ${weekNumber}`;
+    const selectionsOpen = !!document.getElementById("editSelectionsOpen")?.checked;
+
+    const { data: duplicate, error: duplicateError } = await client.from("weeks")
+      .select("id, week_number").eq("week_number", weekNumber).neq("id", currentWeek.id).maybeSingle();
+    if (duplicateError) throw duplicateError;
+    if (duplicate) throw new Error(`Week ${weekNumber} already exists. Choose a different week number before saving.`);
+
+    const { error } = await client.from("weeks")
+      .update({week_number: weekNumber, title, selections_open: selectionsOpen})
+      .eq("id", currentWeek.id);
     if (error) throw error;
 
     const checks = [...document.querySelectorAll("[data-editor-team]")];
@@ -1084,20 +1213,13 @@ async function saveEditorSettings() {
       if (teamError) throw teamError;
     }
 
+    currentWeek = {...currentWeek, week_number: weekNumber, title, selections_open: selectionsOpen};
     editorMessage("✅ Week settings and playing teams saved.");
     await loadWeek();
     await loadWeekTeams();
-    document.querySelectorAll("[data-editor-team]").forEach(checkbox => {
-      const teamId = checkbox.getAttribute("data-editor-team");
-      const team = teams.find(t => t.id === teamId);
-      if (team) {
-        checkbox.checked = !!team.playing;
-        const status = checkbox.closest(".check-row")?.querySelector(".playing-status");
-        if (status) status.textContent = team.playing ? "Playing" : "Not playing";
-      }
-    });
     await Promise.all([loadPublicProfiles(), loadLeaderboard()]);
     render();
+    await renderEditor();
   } catch (error) {
     console.error(error);
     editorMessage(error?.message || "Could not save week settings and playing teams.", true);
@@ -1105,7 +1227,7 @@ async function saveEditorSettings() {
 }
 
 async function startNewWeek() {
-  if (!isAdmin) {
+  if (!isAdmin || !currentUser) {
     notify("Admin access required.");
     editorMessage("You need Admin access to start a week.", true);
     return;
@@ -1114,48 +1236,54 @@ async function startNewWeek() {
   const numberInput = document.getElementById("newWeekNumber");
   const titleInput = document.getElementById("newWeekTitle");
   const button = document.getElementById("newWeekBtn");
-
   if (!numberInput || !titleInput) {
-    notify("The new-week fields are missing from the page.");
+    editorMessage("The new-week fields are missing from the page.", true);
     return;
   }
 
-  const number = Math.max(
-    1,
-    Math.min(
-      999,
-      Number(numberInput.value) || ((currentWeek?.week_number || 0) + 1)
-    )
-  );
-  const title = titleInput.value.trim() || `Week ${number}`;
-
   if (button) button.disabled = true;
-  editorMessage("Creating new week…");
+  editorMessage("Checking week number…");
+  let previousCurrentId = null;
+  let previousCurrentWasClosed = false;
+  let createdWeekId = null;
 
   try {
     const client = getSupabaseClient();
+    const allWeeks = await fetchWeekNumberRows();
+    const usedNumbers = new Set(allWeeks.map(row => Number(row.week_number)));
+    const enteredNumber = Number(numberInput.value);
+    let number = Number.isInteger(enteredNumber) && enteredNumber >= 1 && enteredNumber <= 999
+      ? enteredNumber
+      : getNextWeekNumber(allWeeks);
+    let correctedDuplicate = false;
+    if (usedNumbers.has(number)) {
+      correctedDuplicate = true;
+      number = getNextWeekNumber(allWeeks);
+    }
 
-    const { error: oldError } = await client
-      .from("weeks")
-      .update({ is_current: false })
-      .eq("is_current", true);
-    if (oldError) throw oldError;
+    const enteredTitle = titleInput.value.trim();
+    const title = isGenericWeekTitle(enteredTitle) ? `Week ${number}` : enteredTitle;
+    const oldCurrent = allWeeks.find(row => row.is_current === true);
+    previousCurrentId = oldCurrent?.id || null;
 
-    const { data, error } = await client
-      .from("weeks")
-      .insert({
-        week_number: number,
-        title,
-        is_current: true,
-        selections_open: false
-      })
+    // Only deactivate the old current week after we've confirmed the requested
+    // week number is unused (or safely replaced it with an unused number).
+    if (oldCurrent) {
+      const { error: closeError } = await client.from("weeks")
+        .update({is_current: false}).eq("id", oldCurrent.id);
+      if (closeError) throw closeError;
+      previousCurrentWasClosed = true;
+    }
+
+    const { data, error } = await client.from("weeks")
+      .insert({week_number: number, title, is_current: true, selections_open: false})
       .select("*")
       .single();
     if (error) throw error;
 
-    await ensureWeekTeams(data.id);
-
+    createdWeekId = data.id;
     currentWeek = data;
+    await ensureWeekTeams(data.id);
     savedFantasyTeamId = null;
     selected.clear();
     fantasyCaptain = null;
@@ -1165,14 +1293,38 @@ async function startNewWeek() {
     await loadWeek();
     await loadWeekTeams();
     render();
+    await renderEditor();
+    await Promise.all([loadPublicProfiles(), loadLeaderboard()]);
 
-    numberInput.value = "";
-    titleInput.value = "";
-
-    editorMessage(`✅ ${title} created. Tick the teams that are playing, then assign their 11 players.`);
-    notify(`✅ ${title} created.`);
+    const nextNumber = getNextWeekNumber([...allWeeks, data]);
+    numberInput.value = String(nextNumber);
+    titleInput.value = `Week ${nextNumber}`;
+    if (correctedDuplicate) {
+      editorMessage(`Week ${enteredNumber} already existed, so Week ${number} was created instead. Choose the 11 players and captain for each playing team below.`);
+      notify(`Week ${enteredNumber} already existed. Created Week ${number}.`);
+    } else {
+      editorMessage(`✅ ${title} created. Select the playing teams, then choose 11 players and a real captain for each playing team.`);
+      notify(`✅ ${title} created.`);
+    }
   } catch (error) {
     console.error("Could not create new week", error);
+    // If a new row was inserted but setup failed, roll back that row as current
+    // before restoring the previous one, so a retry cannot leave two current weeks.
+    const client = getSupabaseClient();
+    if (createdWeekId && previousCurrentId && previousCurrentWasClosed) {
+      const { error: closeNewError } = await client.from("weeks")
+        .update({is_current: false}).eq("id", createdWeekId);
+      if (closeNewError) console.error("Could not deactivate the incomplete week", closeNewError);
+    }
+    if (previousCurrentId && previousCurrentWasClosed) {
+      const { error: restoreError } = await client.from("weeks")
+        .update({is_current: true}).eq("id", previousCurrentId);
+      if (restoreError) console.error("Could not restore previous current week", restoreError);
+      await loadWeek();
+      await loadWeekTeams();
+      render();
+      await renderEditor();
+    }
     editorMessage(error?.message || "Could not create the new week.", true);
     notify(error?.message || "Could not create the new week.");
   } finally {
